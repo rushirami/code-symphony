@@ -153,10 +153,7 @@ export function createOrchestrator(
     if (!worker) return;
 
     // Accumulate stats
-    worker.turnsCompleted += 1;
-    worker.totalCostUsd += result.totalCostUsd;
-    worker.totalDurationMs += result.durationMs;
-    worker.sessionId = result.sessionId;
+    state.accumulateTurnStats(issue.identifier, result);
 
     log.info(
       {
@@ -212,7 +209,7 @@ export function createOrchestrator(
       }
 
       // Update issue state snapshot
-      worker.issue.state = currentState;
+      state.updateIssueState(issue.identifier, currentState);
     } catch (err) {
       log.error({ err, issue: issue.identifier }, "State check failed between turns, completing");
       state.markCompleted(issue.identifier);
@@ -294,7 +291,7 @@ export function createOrchestrator(
             log.warn({ err, issue: worker.issue.identifier }, "Workspace removal failed");
           });
         } else if (isActive(currentState)) {
-          worker.issue.state = currentState;
+          state.updateIssueState(worker.issue.identifier, currentState);
         } else {
           log.info(
             { issue: worker.issue.identifier, state: currentState },
@@ -317,20 +314,8 @@ export function createOrchestrator(
       if (availableSlots() <= 0) break;
 
       const { issue } = worker;
-      const attempts = worker.attempts;
-      const sessionId = worker.sessionId;
-      const turnsCompleted = worker.turnsCompleted;
-      const totalCostUsd = worker.totalCostUsd;
-      const totalDurationMs = worker.totalDurationMs;
-
-      state.release(issue.identifier);
-
-      const newWorker = state.claim(issue);
-      newWorker.attempts = attempts;
-      newWorker.sessionId = sessionId;
-      newWorker.turnsCompleted = turnsCompleted;
-      newWorker.totalCostUsd = totalCostUsd;
-      newWorker.totalDurationMs = totalDurationMs;
+      const newWorker = state.reclaimForRetry(issue.identifier);
+      const { attempts, sessionId, turnsCompleted } = newWorker;
 
       try {
         const wsPath = await workspaces.ensure(issue);

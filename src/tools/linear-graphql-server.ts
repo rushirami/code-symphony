@@ -8,11 +8,14 @@
  */
 import { createInterface } from "node:readline";
 
-const endpoint = process.argv[2];
-const apiKey = process.argv[3];
+const endpoint = process.env.SYMPHONY_LINEAR_ENDPOINT ?? process.argv[2];
+const apiKey = process.env.SYMPHONY_LINEAR_API_KEY ?? process.argv[3];
 
 if (!endpoint || !apiKey) {
-  process.stderr.write("Usage: linear-graphql-server <endpoint> <api_key>\n");
+  process.stderr.write(
+    "Set SYMPHONY_LINEAR_ENDPOINT and SYMPHONY_LINEAR_API_KEY env vars, " +
+    "or pass as: linear-graphql-server <endpoint> <api_key>\n",
+  );
   process.exit(1);
 }
 

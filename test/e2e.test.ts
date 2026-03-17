@@ -190,11 +190,16 @@ Work on {{ issue.identifier }}
 
     // Dispatch
     await orchestrator.refresh();
-    await new Promise((r) => setTimeout(r, 300));
 
-    // Check status API
-    const stateRes = await fetch(`${serverUrl}/api/v1/state`);
-    const stateBody = await stateRes.json();
+    // Poll until worker reaches running state (avoids flaky fixed timeout)
+    let stateBody: { runningCount: number };
+    const deadline = Date.now() + 5000;
+    do {
+      await new Promise((r) => setTimeout(r, 100));
+      const stateRes = await fetch(`${serverUrl}/api/v1/state`);
+      stateBody = await stateRes.json() as { runningCount: number };
+    } while (stateBody.runningCount === 0 && Date.now() < deadline);
+
     expect(stateBody.runningCount).toBe(1);
 
     const issueRes = await fetch(`${serverUrl}/api/v1/PROJ-1`);

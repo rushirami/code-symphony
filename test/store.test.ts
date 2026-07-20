@@ -127,3 +127,82 @@ describe("TaskStore create/get/list", () => {
     raw.close();
   });
 });
+
+describe("TaskStore mutations and history", () => {
+  it("updateState logs state_changed; with note also stores a comment in one transaction", async () => {
+    const store = await makeStore();
+    const t = store.createTask({ title: "x", state: "Todo", actor: "rushi" });
+    store.updateState(t.identifier, "In Progress", "rushi");
+    const done = store.updateState(t.identifier, "done", "agent:TASK-1", "All tests green");
+    expect(done.state).toBe("Done");
+    const comments = store.getComments(t.identifier);
+    expect(comments).toHaveLength(1);
+    expect(comments[0].author).toBe("agent:TASK-1");
+    expect(comments[0].body).toBe("All tests green");
+    const kinds = store.getHistory(t.identifier).map((e) => e.kind);
+    expect(kinds).toEqual(["created", "state_changed", "state_changed", "commented"]);
+    const last = store.getHistory(t.identifier).filter((e) => e.kind === "state_changed").at(-1)!;
+    expect(last.oldValue).toBe("In Progress");
+    expect(last.newValue).toBe("Done");
+    store.close();
+  });
+
+  it("updateState without note appends exactly one event", async () => {
+    const store = await makeStore();
+    const t = store.createTask({ title: "x", actor: "a" });
+    const before = store.getHistory(t.identifier).length;
+    store.updateState(t.identifier, "Todo", "a");
+    expect(store.getHistory(t.identifier).length).toBe(before + 1);
+    store.close();
+  });
+
+  it("rejects unknown identifiers with an actionable message", async () => {
+    const store = await makeStore();
+    expect(() => store.updateState("TASK-99", "Done", "a"))
+      .toThrow('No task with identifier "TASK-99"');
+    store.close();
+  });
+
+  it("editTask logs edited and priority_changed separately", async () => {
+    const store = await makeStore();
+    const t = store.createTask({ title: "old", priority: 3, actor: "a" });
+    const updated = store.editTask(t.identifier, { title: "new", priority: 1 }, "a");
+    expect(updated.title).toBe("new");
+    expect(updated.priority).toBe(1);
+    const kinds = store.getHistory(t.identifier).map((e) => e.kind);
+    expect(kinds).toContain("edited");
+    expect(kinds).toContain("priority_changed");
+    const pc = store.getHistory(t.identifier).find((e) => e.kind === "priority_changed")!;
+    expect(pc.oldValue).toBe("3");
+    expect(pc.newValue).toBe("1");
+    store.close();
+  });
+
+  it("label add/remove and block/unblock update records and history", async () => {
+    const store = await makeStore();
+    const a = store.createTask({ title: "a", actor: "u" });
+    const b = store.createTask({ title: "b", actor: "u" });
+    store.addLabel(a.identifier, "Bug", "u");
+    expect(store.getTask(a.identifier)!.labels).toEqual(["bug"]);
+    store.removeLabel(a.identifier, "bug", "u");
+    expect(store.getTask(a.identifier)!.labels).toEqual([]);
+    store.addBlocker(b.identifier, a.identifier, "u");
+    expect(store.getTask(b.identifier)!.blockedBy.map((x) => x.identifier)).toEqual([a.identifier]);
+    store.removeBlocker(b.identifier, a.identifier, "u");
+    expect(store.getTask(b.identifier)!.blockedBy).toEqual([]);
+    const kinds = store.getHistory(b.identifier).map((e) => e.kind);
+    expect(kinds).toContain("blocked");
+    expect(kinds).toContain("unblocked");
+    store.close();
+  });
+
+  it("addComment stores markdown verbatim and logs commented with the body as note", async () => {
+    const store = await makeStore();
+    const t = store.createTask({ title: "x", actor: "a" });
+    const md = "## Progress\n- [x] step one\n**bold**";
+    store.addComment(t.identifier, "rushi", md);
+    expect(store.getComments(t.identifier)[0].body).toBe(md);
+    expect(store.getHistory(t.identifier).find((e) => e.kind === "commented")!.note).toBe(md);
+    store.close();
+  });
+});

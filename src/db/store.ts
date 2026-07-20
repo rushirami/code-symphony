@@ -58,8 +58,19 @@ export interface TaskStore {
   createTask(input: CreateTaskInput): TaskRecord;
   getTask(identifier: string): TaskRecord | undefined;
   listTasks(filter?: { states?: string[]; labels?: string[] }): TaskRecord[];
-  // Task 3 adds: updateState, addComment, getComments, editTask,
-  //   addLabel, removeLabel, addBlocker, removeBlocker, getHistory
+  updateState(identifier: string, newState: string, actor: string, note?: string): TaskRecord;
+  addComment(identifier: string, author: string, body: string): TaskCommentRecord;
+  getComments(identifier: string): TaskCommentRecord[];
+  editTask(
+    identifier: string,
+    changes: { title?: string; description?: string; priority?: number },
+    actor: string,
+  ): TaskRecord;
+  addLabel(identifier: string, label: string, actor: string): void;
+  removeLabel(identifier: string, label: string, actor: string): void;
+  addBlocker(blockedIdentifier: string, blockerIdentifier: string, actor: string): void;
+  removeBlocker(blockedIdentifier: string, blockerIdentifier: string, actor: string): void;
+  getHistory(identifier: string): TaskEventRecord[];
   close(): void;
 }
 
@@ -135,7 +146,7 @@ export function createTaskStore(
     };
   }
 
-  const createTask = db.transaction((input: CreateTaskInput): TaskRecord => {
+  const createTaskTx = db.transaction((input: CreateTaskInput): TaskRecord => {
     const state = input.state ? canonicalState(input.state) : "Backlog";
     const priority = input.priority ?? 0;
     if (!Number.isInteger(priority) || priority < 0 || priority > 4) {
@@ -186,5 +197,134 @@ export function createTaskStore(
     return records;
   }
 
-  return { createTask, getTask, listTasks, close: () => db.close() };
+  function insertComment(taskId: number, author: string, body: string): TaskCommentRecord {
+    const ts = now();
+    const info = db.prepare(
+      "INSERT INTO task_comments (task_id, author, body, created_at) VALUES (?, ?, ?, ?)",
+    ).run(taskId, author, body, ts);
+    logEvent(taskId, "commented", null, null, author, body);
+    return { id: Number(info.lastInsertRowid), taskId, author, body, createdAt: ts };
+  }
+
+  const updateStateTx = db.transaction(
+    (identifier: string, newState: string, actor: string, note?: string): TaskRecord => {
+      const row = requireRow(identifier);
+      const state = canonicalState(newState);
+      db.prepare("UPDATE tasks SET state = ? WHERE id = ?").run(state, row.id);
+      logEvent(row.id, "state_changed", row.state, state, actor, note ?? null);
+      if (note) insertComment(row.id, actor, note);
+      return rowToRecord(requireRow(identifier));
+    },
+  );
+
+  const addCommentTx = db.transaction(
+    (identifier: string, author: string, body: string): TaskCommentRecord => {
+      const row = requireRow(identifier);
+      return insertComment(row.id, author, body);
+    },
+  );
+
+  function getComments(identifier: string): TaskCommentRecord[] {
+    const row = requireRow(identifier);
+    return (db.prepare(
+      "SELECT id, task_id, author, body, created_at FROM task_comments WHERE task_id = ? ORDER BY id",
+    ).all(row.id) as Array<{ id: number; task_id: number; author: string; body: string; created_at: string }>)
+      .map((r) => ({ id: r.id, taskId: r.task_id, author: r.author, body: r.body, createdAt: r.created_at }));
+  }
+
+  const editTaskTx = db.transaction(
+    (identifier: string, changes: { title?: string; description?: string; priority?: number }, actor: string): TaskRecord => {
+      const row = requireRow(identifier);
+      const edited: string[] = [];
+      if (changes.title !== undefined && changes.title !== row.title) {
+        db.prepare("UPDATE tasks SET title = ? WHERE id = ?").run(changes.title, row.id);
+        edited.push("title");
+      }
+      if (changes.description !== undefined && changes.description !== row.description) {
+        db.prepare("UPDATE tasks SET description = ? WHERE id = ?").run(changes.description, row.id);
+        edited.push("description");
+      }
+      if (edited.length > 0) logEvent(row.id, "edited", null, edited.join(","), actor, null);
+      if (changes.priority !== undefined && changes.priority !== row.priority) {
+        if (!Number.isInteger(changes.priority) || changes.priority < 0 || changes.priority > 4) {
+          throw new Error(`Priority must be 0-4 (0 none, 1 urgent, 2 high, 3 medium, 4 low), got ${changes.priority}`);
+        }
+        db.prepare("UPDATE tasks SET priority = ? WHERE id = ?").run(changes.priority, row.id);
+        logEvent(row.id, "priority_changed", String(row.priority), String(changes.priority), actor, null);
+      }
+      return rowToRecord(requireRow(identifier));
+    },
+  );
+
+  const addLabelTx = db.transaction((identifier: string, label: string, actor: string): void => {
+    const row = requireRow(identifier);
+    const norm = label.toLowerCase();
+    const info = db.prepare("INSERT OR IGNORE INTO task_labels (task_id, label) VALUES (?, ?)").run(row.id, norm);
+    if (info.changes > 0) logEvent(row.id, "labeled", null, norm, actor, null);
+  });
+
+  const removeLabelTx = db.transaction((identifier: string, label: string, actor: string): void => {
+    const row = requireRow(identifier);
+    const norm = label.toLowerCase();
+    const info = db.prepare("DELETE FROM task_labels WHERE task_id = ? AND label = ?").run(row.id, norm);
+    if (info.changes > 0) logEvent(row.id, "unlabeled", norm, null, actor, null);
+  });
+
+  const addBlockerTx = db.transaction(
+    (blockedIdentifier: string, blockerIdentifier: string, actor: string): void => {
+      const blocked = requireRow(blockedIdentifier);
+      const blocker = requireRow(blockerIdentifier);
+      const info = db.prepare(
+        "INSERT OR IGNORE INTO task_relations (blocker_id, blocked_id) VALUES (?, ?)",
+      ).run(blocker.id, blocked.id);
+      if (info.changes > 0) logEvent(blocked.id, "blocked", null, blockerIdentifier, actor, null);
+    },
+  );
+
+  const removeBlockerTx = db.transaction(
+    (blockedIdentifier: string, blockerIdentifier: string, actor: string): void => {
+      const blocked = requireRow(blockedIdentifier);
+      const blocker = requireRow(blockerIdentifier);
+      const info = db.prepare(
+        "DELETE FROM task_relations WHERE blocker_id = ? AND blocked_id = ?",
+      ).run(blocker.id, blocked.id);
+      if (info.changes > 0) logEvent(blocked.id, "unblocked", blockerIdentifier, null, actor, null);
+    },
+  );
+
+  function getHistory(identifier: string): TaskEventRecord[] {
+    const row = requireRow(identifier);
+    return (db.prepare("SELECT * FROM task_events WHERE task_id = ? ORDER BY id").all(row.id) as Array<{
+      id: number; task_id: number; kind: string; old_value: string | null;
+      new_value: string | null; actor: string; note: string | null; created_at: string;
+    }>).map((r) => ({
+      id: r.id, taskId: r.task_id, kind: r.kind, oldValue: r.old_value,
+      newValue: r.new_value, actor: r.actor, note: r.note, createdAt: r.created_at,
+    }));
+  }
+
+  return {
+    createTask: (input: CreateTaskInput) => createTaskTx.immediate(input),
+    getTask,
+    listTasks,
+    updateState: (identifier: string, newState: string, actor: string, note?: string) =>
+      updateStateTx.immediate(identifier, newState, actor, note),
+    addComment: (identifier: string, author: string, body: string) =>
+      addCommentTx.immediate(identifier, author, body),
+    getComments,
+    editTask: (
+      identifier: string,
+      changes: { title?: string; description?: string; priority?: number },
+      actor: string,
+    ) => editTaskTx.immediate(identifier, changes, actor),
+    addLabel: (identifier: string, label: string, actor: string) => addLabelTx.immediate(identifier, label, actor),
+    removeLabel: (identifier: string, label: string, actor: string) =>
+      removeLabelTx.immediate(identifier, label, actor),
+    addBlocker: (blockedIdentifier: string, blockerIdentifier: string, actor: string) =>
+      addBlockerTx.immediate(blockedIdentifier, blockerIdentifier, actor),
+    removeBlocker: (blockedIdentifier: string, blockerIdentifier: string, actor: string) =>
+      removeBlockerTx.immediate(blockedIdentifier, blockerIdentifier, actor),
+    getHistory,
+    close: () => db.close(),
+  };
 }

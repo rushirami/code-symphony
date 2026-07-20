@@ -3,3 +3,4 @@ dist/
 workspaces/
 *.tsbuildinfo
 .env
+.superpowers/

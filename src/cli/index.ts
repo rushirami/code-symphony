@@ -3,6 +3,7 @@ import { readFileSync } from "node:fs";
 import { createTaskStore, STATES, type TaskRecord, type TaskStore } from "../db/store.js";
 import { resolveDbContext, str, type Flags } from "./context.js";
 import { runBoard } from "./board.js";
+import { runUp } from "./up.js";
 
 const PRIORITY_NAMES = ["none", "urgent", "high", "medium", "low"] as const;
 const BOOLEAN_FLAGS = new Set(["all", "help"]);
@@ -24,12 +25,13 @@ const COMMAND_FLAGS: Record<string, string[]> = {
   unblock: ["by"],
   history: [],
   board: ["port", "actor"],
+  up: ["board-port", "actor"],
 };
 // Maximum positional arguments each command consumes; extras are rejected.
 const MAX_POSITIONALS: Record<string, number> = {
   add: 1, list: 0, show: 1, state: 2, done: 1, cancel: 1,
   comment: 2, edit: 1, block: 1, unblock: 1, history: 1,
-  board: 0,
+  board: 0, up: 1,
 };
 
 interface ParsedArgs {
@@ -158,6 +160,7 @@ Usage:
   symphony unblock <TASK-N> --by <TASK-M>
   symphony history <TASK-N>
   symphony board [--port 4400] [--db <path>] [--actor <name>]   # web Kanban UI
+  symphony up [workflow.md] [--board-port 4400] [--actor <name>]  # orchestrator + board in one process
 
 Common flags: --db <path>, --author <name>
 States: ${STATES.join(", ")}   Priorities: 0 none, 1 urgent, 2 high, 3 medium, 4 low
@@ -177,6 +180,11 @@ async function main(): Promise<void> {
 
   if (command === "board") {
     await runBoard(flags);
+    return;
+  }
+
+  if (command === "up") {
+    await runUp(positionals[0], flags);
     return;
   }
 

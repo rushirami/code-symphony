@@ -131,3 +131,4 @@ body {
   font-size: 13px;
   max-width: 360px;
 }
+.show-cancelled { display: block; padding: 12px 16px 0; font-size: 13px; color: #57606a; }

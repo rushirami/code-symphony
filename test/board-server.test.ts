@@ -2,6 +2,7 @@ import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import path from "node:path";
 import pino from "pino";
 import { createBoardServer, toHttpError, type BoardServer } from "../src/board/server.js";
+import { createTaskStore } from "../src/db/store.js";
 import { useTmpDir } from "./helpers.js";
 
 const log = pino({ level: "silent" });
@@ -205,4 +206,40 @@ describe("toHttpError", () => {
     expect(mapped.message).toBe("Internal error");
     expect(toHttpError("string throw").status).toBe(500);
   });
+});
+
+describe("board server: SSE", () => {
+  beforeEach(async () => {
+    await startBoard();
+  });
+
+  async function openEvents(): Promise<{ read: () => Promise<string>; close: () => void }> {
+    const controller = new AbortController();
+    const res = await fetch(`${url}/api/events`, { signal: controller.signal });
+    expect(res.headers.get("content-type")).toBe("text/event-stream");
+    const reader = res.body!.getReader();
+    const decoder = new TextDecoder();
+    return {
+      read: async () => decoder.decode((await reader.read()).value),
+      close: () => controller.abort(),
+    };
+  }
+
+  it("emits changed after an API mutation", async () => {
+    const events = await openEvents();
+    expect(await events.read()).toContain(":ok"); // greeting
+    await post("/api/tasks", { title: "A" });
+    expect(await events.read()).toContain("event: changed");
+    events.close();
+  });
+
+  it("emits changed when an external process writes the db", async () => {
+    const events = await openEvents();
+    await events.read(); // greeting
+    const external = createTaskStore(dbPath);
+    external.createTask({ title: "from agent", actor: "agent" });
+    external.close();
+    expect(await events.read()).toContain("event: changed");
+    events.close();
+  }, 10_000);
 });

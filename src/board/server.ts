@@ -1,4 +1,5 @@
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
+import chokidar, { type FSWatcher } from "chokidar";
 import type { Logger } from "pino";
 import { createTaskStore, type TaskStore } from "../db/store.js";
 
@@ -104,6 +105,29 @@ export function createBoardServer(opts: BoardServerOptions): BoardServer {
   let server: Server;
   let store: TaskStore;
   let actualPort = 0;
+  const sseClients = new Set<ServerResponse>();
+  let watcher: FSWatcher | undefined;
+  let broadcastTimer: NodeJS.Timeout | undefined;
+  let heartbeatTimer: NodeJS.Timeout | undefined;
+
+  function scheduleBroadcast(): void {
+    if (broadcastTimer) return;
+    broadcastTimer = setTimeout(() => {
+      broadcastTimer = undefined;
+      for (const client of sseClients) client.write("event: changed\ndata: {}\n\n");
+    }, 100);
+  }
+
+  function handleEvents(req: IncomingMessage, res: ServerResponse): void {
+    res.writeHead(200, {
+      "Content-Type": "text/event-stream",
+      "Cache-Control": "no-cache",
+      Connection: "keep-alive",
+    });
+    res.write(":ok\n\n");
+    sseClients.add(res);
+    req.on("close", () => sseClients.delete(res));
+  }
 
   async function handleApi(
     req: IncomingMessage,
@@ -113,6 +137,10 @@ export function createBoardServer(opts: BoardServerOptions): BoardServer {
   ): Promise<void> {
     const [, resource, identifier, sub] = segments;
     const method = req.method ?? "GET";
+    if (resource === "events" && method === "GET") {
+      handleEvents(req, res);
+      return;
+    }
     if (resource !== "tasks") throw new HttpError(404, "Not found");
 
     if (!identifier) {
@@ -220,6 +248,7 @@ export function createBoardServer(opts: BoardServerOptions): BoardServer {
       if (url.pathname === "/api" || url.pathname.startsWith("/api/")) {
         const segments = url.pathname.split("/").filter(Boolean).map(decodeURIComponent);
         await handleApi(req, res, url, segments);
+        if ((req.method ?? "GET") !== "GET" && res.statusCode < 400) scheduleBroadcast();
         return;
       }
       sendJson(res, 404, { error: "Not found" });
@@ -238,6 +267,11 @@ export function createBoardServer(opts: BoardServerOptions): BoardServer {
 
     async start() {
       store = createTaskStore(dbPath, { identifierPrefix });
+      watcher = chokidar.watch([dbPath, `${dbPath}-wal`], { ignoreInitial: true });
+      watcher.on("all", () => scheduleBroadcast());
+      heartbeatTimer = setInterval(() => {
+        for (const client of sseClients) client.write(":ping\n\n");
+      }, 30_000);
       server = createServer((req, res) => {
         void handler(req, res);
       });
@@ -253,6 +287,11 @@ export function createBoardServer(opts: BoardServerOptions): BoardServer {
     },
 
     async stop() {
+      if (broadcastTimer) clearTimeout(broadcastTimer);
+      if (heartbeatTimer) clearInterval(heartbeatTimer);
+      await watcher?.close();
+      for (const client of sseClients) client.end();
+      sseClients.clear();
       store?.close();
       return new Promise<void>((resolve) => {
         server.close(() => resolve());

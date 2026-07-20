@@ -110,4 +110,38 @@ body
     expect(store.getTask("SYM-1")!.title).toBe("hello");
     store.close();
   });
+
+  it("edit updates title/description/priority; comment appends a markdown comment", async () => {
+    const dir = await useTmpDir();
+    const env = { SYMPHONY_DB: path.join(dir, "tasks.db") };
+    runCli(["add", "Original", "--state", "Todo"], { env });
+    expect(runCli(["edit", "TASK-1", "--title", "Renamed", "-d", "New **body**", "-p", "2"], { env }).code).toBe(0);
+    expect(runCli(["comment", "TASK-1", "A `markdown` note", "--author", "rushi"], { env }).code).toBe(0);
+    const store = createTaskStore(path.join(dir, "tasks.db"));
+    const t = store.getTask("TASK-1")!;
+    expect(t.title).toBe("Renamed");
+    expect(t.description).toBe("New **body**");
+    expect(t.priority).toBe(2);
+    expect(store.getComments("TASK-1").map((c) => c.body)).toContain("A `markdown` note");
+    store.close();
+    const show = runCli(["show", "TASK-1"], { env });
+    expect(show.stdout).toContain("Renamed");
+    expect(show.stdout).toContain("A `markdown` note");
+  });
+
+  it("list --all includes terminal states; --label filters", async () => {
+    const dir = await useTmpDir();
+    const env = { SYMPHONY_DB: path.join(dir, "tasks.db") };
+    runCli(["add", "open one", "--state", "Todo", "-l", "bug"], { env });
+    runCli(["add", "closed one", "--state", "Todo"], { env });
+    runCli(["done", "TASK-2"], { env });
+    const dflt = runCli(["list"], { env });
+    expect(dflt.stdout).toContain("TASK-1");
+    expect(dflt.stdout).not.toContain("TASK-2");
+    const all = runCli(["list", "--all"], { env });
+    expect(all.stdout).toContain("TASK-2");
+    const byLabel = runCli(["list", "--label", "bug"], { env });
+    expect(byLabel.stdout).toContain("TASK-1");
+    expect(byLabel.stdout).not.toContain("TASK-2");
+  }, 15000);
 });

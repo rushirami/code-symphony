@@ -175,7 +175,7 @@ function main(): void {
       case "list": {
         const states = flags.all === true ? undefined
           : str(flags, "state")?.split(",").map((s) => s.trim())
-            ?? ["Backlog", "Todo", "In Progress", "In Review"];
+            ?? STATES.filter((s) => s !== "Done" && s !== "Cancelled");
         const label = str(flags, "label");
         printList(store.listTasks({ states, labels: label ? [label] : undefined }));
         break;

@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import path from "node:path";
+import { mkdir, writeFile } from "node:fs/promises";
 import pino from "pino";
 import { createBoardServer, toHttpError, type BoardServer } from "../src/board/server.js";
 import { createTaskStore } from "../src/db/store.js";
@@ -254,5 +255,47 @@ describe("board server: SSE", () => {
     await post("/api/tasks", { title: "after restart" });
     expect(await events.read()).toContain("event: changed");
     events.close();
+  });
+});
+
+describe("board server: static files", () => {
+  it("serves index.html, assets, and SPA fallback", async () => {
+    const dir = await useTmpDir();
+    const webDist = path.join(dir, "dist");
+    await mkdir(path.join(webDist, "assets"), { recursive: true });
+    await writeFile(path.join(webDist, "index.html"), "<html>board</html>");
+    await writeFile(path.join(webDist, "assets", "app.js"), "console.log(1)");
+    await startBoard({ webDist });
+
+    const root = await fetch(`${url}/`);
+    expect(root.status).toBe(200);
+    expect(root.headers.get("content-type")).toBe("text/html; charset=utf-8");
+    expect(await root.text()).toBe("<html>board</html>");
+
+    const js = await fetch(`${url}/assets/app.js`);
+    expect(js.status).toBe(200);
+    expect(js.headers.get("content-type")).toBe("text/javascript");
+
+    const spa = await fetch(`${url}/task/TASK-1`);
+    expect(spa.status).toBe(200);
+    expect(await spa.text()).toBe("<html>board</html>");
+  });
+
+  it("rejects path traversal", async () => {
+    const dir = await useTmpDir();
+    const webDist = path.join(dir, "dist");
+    await mkdir(webDist, { recursive: true });
+    await writeFile(path.join(webDist, "index.html"), "ok");
+    await writeFile(path.join(dir, "secret.txt"), "secret");
+    await startBoard({ webDist });
+    const res = await fetch(`${url}/%2e%2e/secret.txt`);
+    expect(res.status).toBe(404);
+  });
+
+  it("explains when the UI is not built", async () => {
+    await startBoard(); // no webDist
+    const res = await fetch(`${url}/`);
+    expect(res.status).toBe(404);
+    expect((await res.json()).error).toMatch(/not built/i);
   });
 });

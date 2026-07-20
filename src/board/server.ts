@@ -1,4 +1,6 @@
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
+import { createReadStream, existsSync, statSync } from "node:fs";
+import path from "node:path";
 import chokidar, { type FSWatcher } from "chokidar";
 import type { Logger } from "pino";
 import { createTaskStore, type TaskStore } from "../db/store.js";
@@ -99,6 +101,18 @@ function optStringArray(body: Record<string, unknown>, key: string): string[] | 
   }
   return v as string[];
 }
+
+const MIME: Record<string, string> = {
+  ".html": "text/html; charset=utf-8",
+  ".js": "text/javascript",
+  ".css": "text/css",
+  ".json": "application/json",
+  ".map": "application/json",
+  ".svg": "image/svg+xml",
+  ".png": "image/png",
+  ".ico": "image/x-icon",
+  ".woff2": "font/woff2",
+};
 
 export function createBoardServer(opts: BoardServerOptions): BoardServer {
   const { dbPath, actor, identifierPrefix, log } = opts;
@@ -243,6 +257,52 @@ export function createBoardServer(opts: BoardServerOptions): BoardServer {
     throw new HttpError(404, "Not found");
   }
 
+  function serveStatic(req: IncomingMessage, res: ServerResponse, rawPathname: string): void {
+    if (req.method !== "GET" && req.method !== "HEAD") {
+      sendJson(res, 405, { error: "Method not allowed" });
+      return;
+    }
+    const webDist = opts.webDist;
+    if (!webDist || !existsSync(path.join(webDist, "index.html"))) {
+      sendJson(res, 404, { error: "Board UI not built. Run: npm --prefix web run build" });
+      return;
+    }
+    const root = path.resolve(webDist);
+    let decoded: string;
+    try {
+      decoded = decodeURIComponent(rawPathname);
+    } catch {
+      sendJson(res, 404, { error: "Not found" });
+      return;
+    }
+    let filePath = path.resolve(root, "." + decoded);
+    if (filePath !== root && !filePath.startsWith(root + path.sep)) {
+      sendJson(res, 404, { error: "Not found" });
+      return;
+    }
+    if (!existsSync(filePath) || !statSync(filePath).isFile()) {
+      // Only fall back to the SPA shell for route-like paths (no file
+      // extension in the last segment). A request for a missing asset
+      // (e.g. "/secret.txt", "/assets/missing.js") should 404, not
+      // silently return index.html.
+      if (path.extname(decoded) !== "") {
+        sendJson(res, 404, { error: "Not found" });
+        return;
+      }
+      filePath = path.join(root, "index.html"); // SPA fallback for client routes
+    }
+    const stream = createReadStream(filePath);
+    stream.once("error", (err) => {
+      log.error({ err, filePath }, "Static file stream error");
+      if (!res.headersSent) sendJson(res, 500, { error: "Internal error" });
+      else res.destroy();
+    });
+    stream.once("open", () => {
+      res.writeHead(200, { "Content-Type": MIME[path.extname(filePath)] ?? "application/octet-stream" });
+      stream.pipe(res);
+    });
+  }
+
   async function handler(req: IncomingMessage, res: ServerResponse): Promise<void> {
     const url = new URL(req.url ?? "/", `http://localhost:${actualPort || 1}`);
     try {
@@ -252,7 +312,11 @@ export function createBoardServer(opts: BoardServerOptions): BoardServer {
         if ((req.method ?? "GET") !== "GET" && res.statusCode < 400) scheduleBroadcast();
         return;
       }
-      sendJson(res, 404, { error: "Not found" });
+      // Use the raw request path, not `url.pathname`: WHATWG URL parsing
+      // collapses encoded dot-segments (e.g. "%2e%2e") before serveStatic
+      // ever sees them, which would silently defeat the traversal check.
+      const rawPathname = (req.url ?? "/").split(/[?#]/, 1)[0] ?? "/";
+      serveStatic(req, res, rawPathname);
     } catch (err) {
       const httpErr = toHttpError(err);
       if (httpErr.status >= 500) log.error({ err }, "Board API error");

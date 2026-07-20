@@ -3,7 +3,10 @@ import type { Task, TaskComment, TaskDetail } from "../types";
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const res = await fetch(path, {
     ...init,
-    headers: init?.body ? { "Content-Type": "application/json" } : undefined,
+    headers: {
+      ...(init?.body ? { "Content-Type": "application/json" } : undefined),
+      ...init?.headers,
+    },
   });
   if (res.status === 204) return undefined as T;
   const body: unknown = await res.json().catch(() => null);

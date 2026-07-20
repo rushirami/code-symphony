@@ -1,10 +1,10 @@
 /**
- * Smoke test: starts a fake Linear server, writes a WORKFLOW.md,
+ * Smoke test: seeds a temp SQLite task DB, writes a WORKFLOW.md,
  * and runs the full Symphony service for a few seconds.
  *
  * Usage: npx tsx test/smoke.ts
  */
-import { createFakeLinearServer } from "./fixtures/fake-linear-server.js";
+import { createTaskStore } from "../src/db/store.js";
 import { writeFile, mkdir, rm } from "node:fs/promises";
 import path from "node:path";
 import { spawn } from "node:child_process";
@@ -13,6 +13,7 @@ import { createInterface } from "node:readline";
 const TMP_DIR = "/tmp/symphony-smoke-test";
 const WS_ROOT = path.join(TMP_DIR, "workspaces");
 const WORKFLOW = path.join(TMP_DIR, "WORKFLOW.md");
+const DB_PATH = path.join(TMP_DIR, "tasks.db");
 const FAKE_CLAUDE = path.resolve(import.meta.dirname, "fixtures/fake-claude.sh");
 
 async function main() {
@@ -20,68 +21,36 @@ async function main() {
   await rm(TMP_DIR, { recursive: true, force: true });
   await mkdir(WS_ROOT, { recursive: true });
 
-  // 1. Start fake Linear server
-  const server = createFakeLinearServer();
-  const port = await server.start();
-  console.log(`[smoke] Fake Linear server on port ${port}`);
-
-  server.setResponse("FetchCandidates", {
-    projects: {
-      nodes: [{
-        issues: {
-          nodes: [
-            {
-              id: "smoke-1",
-              identifier: "SMOKE-1",
-              title: "Fix the widget",
-              description: "The widget is broken",
-              state: { name: "Todo" },
-              priority: 1,
-              url: "https://linear.app/test/SMOKE-1",
-              labels: { nodes: [{ name: "bug" }] },
-              branchName: "smoke-1-fix-widget",
-              createdAt: "2026-03-01T00:00:00.000Z",
-              updatedAt: "2026-03-10T00:00:00.000Z",
-              relations: { nodes: [] },
-            },
-            {
-              id: "smoke-2",
-              identifier: "SMOKE-2",
-              title: "Add dark mode",
-              description: "Users want dark mode",
-              state: { name: "Todo" },
-              priority: 2,
-              url: "https://linear.app/test/SMOKE-2",
-              labels: { nodes: [{ name: "feature" }] },
-              branchName: "smoke-2-dark-mode",
-              createdAt: "2026-03-02T00:00:00.000Z",
-              updatedAt: "2026-03-11T00:00:00.000Z",
-              relations: { nodes: [] },
-            },
-          ],
-          pageInfo: { hasNextPage: false, endCursor: null },
-        },
-      }],
-    },
+  // 1. Seed the task DB
+  const store = createTaskStore(DB_PATH);
+  const t1 = store.createTask({
+    title: "Fix the widget",
+    description: "The widget is broken",
+    state: "Todo",
+    priority: 1,
+    labels: ["bug"],
+    branchName: "smoke-1-fix-widget",
+    actor: "smoke",
   });
-
-  server.setResponse("FetchStatesByIds", {
-    issues: { nodes: [] },
+  const t2 = store.createTask({
+    title: "Add dark mode",
+    description: "Users want dark mode",
+    state: "Todo",
+    priority: 2,
+    labels: ["feature"],
+    branchName: "smoke-2-dark-mode",
+    actor: "smoke",
   });
-
-  server.setResponse("FetchIssuesByStates", {
-    projects: { nodes: [{ issues: { nodes: [] } }] },
-  });
+  store.close();
+  console.log(`[smoke] Seeded ${DB_PATH} with ${t1.identifier}, ${t2.identifier}`);
 
   // 2. Write WORKFLOW.md
   await writeFile(WORKFLOW, `---
 tracker:
-  kind: linear
-  api_key: fake-key-for-smoke-test
-  project_slug: smoke-proj
+  kind: sqlite
+  db_path: "${DB_PATH}"
   active_states: ["Todo", "In Progress"]
   terminal_states: ["Done", "Cancelled"]
-  endpoint: http://localhost:${port}/graphql
 polling:
   interval_ms: 5000
 agent:
@@ -89,7 +58,7 @@ agent:
   max_turns: 3
 workspace:
   root: "${WS_ROOT}"
-codex:
+runner:
   command: "${FAKE_CLAUDE}"
 server:
   port: 0
@@ -157,8 +126,6 @@ You are working on {{ issue.identifier }}: {{ issue.title }}
       resolve();
     }, 5000);
   });
-
-  await server.stop();
 
   // Cleanup
   await rm(TMP_DIR, { recursive: true, force: true });

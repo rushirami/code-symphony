@@ -1,75 +1,57 @@
-import { describe, it, expect, beforeAll, afterAll } from "vitest";
+import { describe, it, expect } from "vitest";
 import { writeFile, readFile, stat, mkdir } from "node:fs/promises";
 import path from "node:path";
 import pino from "pino";
-import { parseWorkflow, renderPrompt } from "../src/workflow/parser.js";
+import { parseWorkflow } from "../src/workflow/parser.js";
 import { loadConfig } from "../src/config/loader.js";
-import { createLinearClient } from "../src/tracker/linear.js";
+import { createSqliteTracker } from "../src/tracker/sqlite.js";
+import { createTaskStore } from "../src/db/store.js";
 import { createStateManager } from "../src/orchestrator/state.js";
 import { createOrchestrator } from "../src/orchestrator/loop.js";
 import { createWorkspaceManager } from "../src/workspace/manager.js";
 import { createAgentRunner } from "../src/agent/runner.js";
 import { createStatusServer } from "../src/server/status.js";
-import { createFakeLinearServer, type FakeLinearServer } from "./fixtures/fake-linear-server.js";
-import { useTmpDir } from "./helpers.js";
+import { useTmpDir, makeConfig } from "./helpers.js";
 
 const log = pino({ level: "silent" });
 const fixturesDir = path.resolve(import.meta.dirname, "fixtures");
 
-function makeRawIssue(id: string, identifier: string, state = "Todo") {
-  return {
-    id,
-    identifier,
-    title: `Issue ${identifier}`,
-    description: `Description for ${identifier}`,
-    state: { name: state },
-    priority: 1,
-    url: `https://linear.app/test/${identifier}`,
-    labels: { nodes: [{ name: "bug" }] },
-    branchName: `fix-${identifier.toLowerCase()}`,
-    createdAt: "2026-03-01T00:00:00.000Z",
-    updatedAt: "2026-03-10T00:00:00.000Z",
-    relations: { nodes: [] },
-  };
-}
-
 describe("End-to-end", () => {
-  let linearServer: FakeLinearServer;
-  let linearPort: number;
-
-  beforeAll(async () => {
-    linearServer = createFakeLinearServer();
-    linearPort = await linearServer.start();
-  });
-
-  afterAll(async () => {
-    await linearServer.stop();
-  });
-
   it("happy path: dispatch, run agent, complete", async () => {
     const tmpDir = await useTmpDir();
     const wsRoot = path.join(tmpDir, "workspaces");
     await mkdir(wsRoot, { recursive: true });
+    const dbPath = path.join(tmpDir, "tasks.db");
 
-    // Write WORKFLOW.md
+    // Seed the task the orchestrator will dispatch.
+    const store = createTaskStore(dbPath);
+    const task = store.createTask({
+      title: "Login is broken",
+      description: "Users cannot log in",
+      state: "Todo",
+      priority: 1,
+      labels: ["bug"],
+      branchName: "fix-login",
+      actor: "test",
+    });
+
+    // Write WORKFLOW.md (max_turns 1 → single-turn completion, no continuation)
     const workflowPath = path.join(tmpDir, "WORKFLOW.md");
     await writeFile(workflowPath, `---
 tracker:
-  kind: linear
-  api_key: test-key
-  project_slug: test-proj
+  kind: sqlite
+  db_path: "${dbPath}"
   active_states: ["Todo", "In Progress"]
   terminal_states: ["Done", "Cancelled"]
-  endpoint: http://localhost:${linearPort}/graphql
 polling:
   interval_ms: 60000
 agent:
   max_concurrent_agents: 2
-  max_turns: 5
+  max_turns: 1
   max_retries: 3
 workspace:
   root: "${wsRoot}"
-codex:
+runner:
   command: "${path.join(fixturesDir, "fake-claude-dump-args.sh")}"
 ---
 You are working on {{ issue.identifier }}: {{ issue.title }}
@@ -78,27 +60,12 @@ Description: {{ issue.description }}
 Labels: {% for label in issue.labels %}{{ label }} {% endfor %}
 `, "utf-8");
 
-    // Set up fake Linear
-    linearServer.setResponse("FetchCandidates", {
-      projects: {
-        nodes: [{
-          issues: {
-            nodes: [makeRawIssue("id-1", "PROJ-1")],
-            pageInfo: { hasNextPage: false, endCursor: null },
-          },
-        }],
-      },
-    });
-    linearServer.setResponse("FetchStatesByIds", {
-      issues: { nodes: [] },
-    });
-
     // Parse and load
     const workflow = await parseWorkflow(workflowPath);
     const config = loadConfig(workflow.config);
 
     // Wire up
-    const tracker = createLinearClient(config.tracker, log);
+    const tracker = createSqliteTracker(config.tracker, log);
     const state = createStateManager();
     const workspaces = createWorkspaceManager(config.workspace, log);
     const agent = createAgentRunner(config.agent, log);
@@ -111,15 +78,15 @@ Labels: {% for label in issue.labels %}{{ label }} {% endfor %}
     await new Promise((r) => setTimeout(r, 500));
 
     // Verify workspace was created
-    const wsPath = workspaces.getPath("PROJ-1");
+    const wsPath = workspaces.getPath(task.identifier);
     const s = await stat(wsPath);
     expect(s.isDirectory()).toBe(true);
 
     // Verify the prompt was passed correctly
     const argsFile = path.join(wsPath, ".claude-args");
     const args = await readFile(argsFile, "utf-8");
-    expect(args).toContain("PROJ-1");
-    expect(args).toContain("Issue PROJ-1");
+    expect(args).toContain(task.identifier);
+    expect(args).toContain("Login is broken");
     expect(args).toContain("--output-format");
     expect(args).toContain("stream-json");
 
@@ -127,29 +94,33 @@ Labels: {% for label in issue.labels %}{{ label }} {% endfor %}
     expect(state.getAllActive()).toHaveLength(0);
 
     await orchestrator.stop();
+    tracker.close();
+    store.close();
   });
 
   it("full stack with status server", async () => {
     const tmpDir = await useTmpDir();
     const wsRoot = path.join(tmpDir, "workspaces");
     await mkdir(wsRoot, { recursive: true });
+    const dbPath = path.join(tmpDir, "tasks.db");
+
+    const store = createTaskStore(dbPath);
+    const task = store.createTask({ title: "Fix the widget", state: "Todo", priority: 1, actor: "test" });
 
     const workflowPath = path.join(tmpDir, "WORKFLOW.md");
     await writeFile(workflowPath, `---
 tracker:
-  kind: linear
-  api_key: test-key
-  project_slug: test-proj
+  kind: sqlite
+  db_path: "${dbPath}"
   active_states: ["Todo"]
   terminal_states: ["Done"]
-  endpoint: http://localhost:${linearPort}/graphql
 polling:
   interval_ms: 60000
 agent:
   max_concurrent_agents: 1
 workspace:
   root: "${wsRoot}"
-codex:
+runner:
   command: "${path.join(fixturesDir, "fake-claude-stall.sh")}"
 server:
   port: 0
@@ -158,24 +129,10 @@ server:
 Work on {{ issue.identifier }}
 `, "utf-8");
 
-    linearServer.setResponse("FetchCandidates", {
-      projects: {
-        nodes: [{
-          issues: {
-            nodes: [makeRawIssue("id-1", "PROJ-1")],
-            pageInfo: { hasNextPage: false, endCursor: null },
-          },
-        }],
-      },
-    });
-    linearServer.setResponse("FetchStatesByIds", {
-      issues: { nodes: [{ id: "id-1", state: { name: "Todo" } }] },
-    });
-
     const workflow = await parseWorkflow(workflowPath);
     const config = loadConfig(workflow.config);
 
-    const tracker = createLinearClient(config.tracker, log);
+    const tracker = createSqliteTracker(config.tracker, log);
     const state = createStateManager();
     const workspaces = createWorkspaceManager(config.workspace, log);
     const agent = createAgentRunner({ ...config.agent, stallTimeoutMs: 0 }, log);
@@ -197,7 +154,7 @@ Work on {{ issue.identifier }}
     const stateBody = await stateRes.json();
     expect(stateBody.runningCount).toBe(1);
 
-    const issueRes = await fetch(`${serverUrl}/api/v1/PROJ-1`);
+    const issueRes = await fetch(`${serverUrl}/api/v1/${task.identifier}`);
     expect(issueRes.status).toBe(200);
     const issueBody = await issueRes.json();
     expect(issueBody.phase).toBe("running");
@@ -209,29 +166,36 @@ Work on {{ issue.identifier }}
     // Cleanup
     await orchestrator.stop();
     await statusServer.stop();
+    tracker.close();
+    store.close();
   });
 
   it("hot reload: changing WORKFLOW.md updates the template", async () => {
     const tmpDir = await useTmpDir();
     const wsRoot = path.join(tmpDir, "workspaces");
     await mkdir(wsRoot, { recursive: true });
+    const dbPath = path.join(tmpDir, "tasks.db");
+
+    const store = createTaskStore(dbPath);
+    // Seed only the first task up front; the second is added mid-test (like the
+    // old fixture swapping the candidate response between dispatches).
+    const task1 = store.createTask({ title: "First task", state: "Todo", priority: 1, actor: "test" });
 
     const workflowPath = path.join(tmpDir, "WORKFLOW.md");
     await writeFile(workflowPath, `---
 tracker:
-  kind: linear
-  api_key: test-key
-  project_slug: test-proj
+  kind: sqlite
+  db_path: "${dbPath}"
   active_states: ["Todo"]
   terminal_states: ["Done"]
-  endpoint: http://localhost:${linearPort}/graphql
 polling:
   interval_ms: 60000
 agent:
   max_concurrent_agents: 2
+  max_turns: 1
 workspace:
   root: "${wsRoot}"
-codex:
+runner:
   command: "${path.join(fixturesDir, "fake-claude-dump-args.sh")}"
 ---
 Original prompt for {{ issue.identifier }}
@@ -240,7 +204,7 @@ Original prompt for {{ issue.identifier }}
     const workflow = await parseWorkflow(workflowPath);
     const config = loadConfig(workflow.config);
 
-    const tracker = createLinearClient(config.tracker, log);
+    const tracker = createSqliteTracker(config.tracker, log);
     const state = createStateManager();
     const workspaces = createWorkspaceManager(config.workspace, log);
     const agent = createAgentRunner(config.agent, log);
@@ -249,64 +213,51 @@ Original prompt for {{ issue.identifier }}
     );
 
     // First dispatch with original prompt
-    linearServer.setResponse("FetchCandidates", {
-      projects: {
-        nodes: [{
-          issues: {
-            nodes: [makeRawIssue("id-1", "PROJ-1")],
-            pageInfo: { hasNextPage: false, endCursor: null },
-          },
-        }],
-      },
-    });
-    linearServer.setResponse("FetchStatesByIds", { issues: { nodes: [] } });
-
     await orchestrator.refresh();
     await new Promise((r) => setTimeout(r, 300));
 
-    const wsPath1 = workspaces.getPath("PROJ-1");
+    const wsPath1 = workspaces.getPath(task1.identifier);
     const args1 = await readFile(path.join(wsPath1, ".claude-args"), "utf-8");
-    expect(args1).toContain("Original prompt for PROJ-1");
+    expect(args1).toContain(`Original prompt for ${task1.identifier}`);
+
+    // Close out the first task so it isn't a candidate on the next tick.
+    store.updateState(task1.identifier, "Done", "test");
 
     // Update template via orchestrator (simulating hot reload)
     orchestrator.updateTemplate("Updated prompt for {{ issue.identifier }}");
 
     // Dispatch a new issue with updated template
-    linearServer.setResponse("FetchCandidates", {
-      projects: {
-        nodes: [{
-          issues: {
-            nodes: [makeRawIssue("id-2", "PROJ-2")],
-            pageInfo: { hasNextPage: false, endCursor: null },
-          },
-        }],
-      },
-    });
+    const task2 = store.createTask({ title: "Second task", state: "Todo", priority: 1, actor: "test" });
 
     await orchestrator.refresh();
     await new Promise((r) => setTimeout(r, 300));
 
-    const wsPath2 = workspaces.getPath("PROJ-2");
+    const wsPath2 = workspaces.getPath(task2.identifier);
     const args2 = await readFile(path.join(wsPath2, ".claude-args"), "utf-8");
-    expect(args2).toContain("Updated prompt for PROJ-2");
+    expect(args2).toContain(`Updated prompt for ${task2.identifier}`);
 
     await orchestrator.stop();
+    tracker.close();
+    store.close();
   });
 
   it("multi-turn e2e: dispatches continuation with --resume", async () => {
     const tmpDir = await useTmpDir();
     const wsRoot = path.join(tmpDir, "workspaces");
     await mkdir(wsRoot, { recursive: true });
+    const dbPath = path.join(tmpDir, "tasks.db");
+
+    const store = createTaskStore(dbPath);
+    // Task stays "In Progress" (active) so the between-turns check triggers continuation.
+    const task = store.createTask({ title: "Ongoing work", state: "In Progress", priority: 1, actor: "test" });
 
     const workflowPath = path.join(tmpDir, "WORKFLOW.md");
     await writeFile(workflowPath, `---
 tracker:
-  kind: linear
-  api_key: test-key
-  project_slug: test-proj
+  kind: sqlite
+  db_path: "${dbPath}"
   active_states: ["In Progress"]
   terminal_states: ["Done"]
-  endpoint: http://localhost:${linearPort}/graphql
 polling:
   interval_ms: 60000
 agent:
@@ -314,30 +265,15 @@ agent:
   max_turns: 3
 workspace:
   root: "${wsRoot}"
-codex:
+runner:
   command: "${path.join(fixturesDir, "fake-claude-dump-args.sh")}"
 ---
 Full prompt for {{ issue.identifier }}
 `, "utf-8");
 
-    // Return issue as active so continuation fires
-    linearServer.setResponse("FetchCandidates", {
-      projects: {
-        nodes: [{
-          issues: {
-            nodes: [makeRawIssue("id-1", "PROJ-1", "In Progress")],
-            pageInfo: { hasNextPage: false, endCursor: null },
-          },
-        }],
-      },
-    });
-    linearServer.setResponse("FetchStatesByIds", {
-      issues: { nodes: [{ id: "id-1", state: { name: "In Progress" } }] },
-    });
-
     const workflow = await parseWorkflow(workflowPath);
     const config = loadConfig(workflow.config);
-    const tracker = createLinearClient(config.tracker, log);
+    const tracker = createSqliteTracker(config.tracker, log);
     const state = createStateManager();
     const workspaces = createWorkspaceManager(config.workspace, log);
     const agent = createAgentRunner(config.agent, log);
@@ -350,26 +286,75 @@ Full prompt for {{ issue.identifier }}
     // Wait for turn 0 + state check + 1s delay + turn 1 to complete
     await new Promise((r) => setTimeout(r, 2500));
 
-    const wsPath = workspaces.getPath("PROJ-1");
+    const wsPath = workspaces.getPath(task.identifier);
 
     // Turn 0 log should exist
     const turn0Log = await readFile(path.join(wsPath, ".symphony", "turn-0.ndjson"), "utf-8");
     expect(turn0Log).toContain('"type":"system"');
 
-    // Turn 0 args should have the full prompt (no --resume)
-    const turn0Args = await readFile(path.join(wsPath, ".claude-args"), "utf-8");
-    // The latest .claude-args is from the most recent turn — should have --resume
-    // since continuation dispatches pass sessionId
-    expect(turn0Args).toContain("--resume");
-    expect(turn0Args).toContain("Continue working on PROJ-1");
+    // The latest .claude-args is from the continuation turn — should have --resume
+    // since continuation dispatches pass sessionId.
+    const latestArgs = await readFile(path.join(wsPath, ".claude-args"), "utf-8");
+    expect(latestArgs).toContain("--resume");
+    expect(latestArgs).toContain(`Continue working on ${task.identifier}`);
 
     // Token tracking should show accumulated cost
-    const worker = state.getWorker("PROJ-1");
+    const worker = state.getWorker(task.identifier);
     if (worker) {
       expect(worker.turnsCompleted).toBeGreaterThanOrEqual(1);
       expect(worker.totalCostUsd).toBeGreaterThan(0);
     }
 
     await orchestrator.stop();
+    tracker.close();
+    store.close();
   });
+
+  it("agent closes its task via the CLI; reconciliation releases the worker", async () => {
+    const tmpDir = await useTmpDir();
+    const dbPath = path.join(tmpDir, "tasks.db");
+    const store = createTaskStore(dbPath);
+    const task = store.createTask({ title: "Close me", state: "Todo", actor: "test" });
+
+    const config = makeConfig({
+      tracker: { ...makeConfig().tracker, dbPath },
+      workspace: { root: path.join(tmpDir, "ws"), hooks: { timeoutMs: 5000 } },
+      agent: {
+        ...makeConfig().agent,
+        command: path.join(fixturesDir, "fake-claude-done.sh"),
+        maxTurns: 5,
+        env: {
+          SYMPHONY_DB: dbPath,
+          SYMPHONY_REPO: path.resolve(import.meta.dirname, ".."),
+          SYMPHONY_TASK: task.identifier,
+        },
+      },
+    });
+    const tracker = createSqliteTracker(config.tracker, log);
+    const state = createStateManager();
+    const workspaces = createWorkspaceManager(config.workspace, log);
+    const agent = createAgentRunner(config.agent, log);
+    const orchestrator = createOrchestrator(
+      config, tracker, state, workspaces, agent, "Work on {{ issue.identifier }}", log,
+    );
+
+    await orchestrator.refresh(); // dispatch
+
+    // Poll for the fake agent (spawns npx tsx — cold start can be slow) to close the task.
+    let closed = false;
+    for (let i = 0; i < 30; i++) {
+      await new Promise((r) => setTimeout(r, 500));
+      if (store.getTask(task.identifier)!.state === "Done") { closed = true; break; }
+    }
+    expect(closed).toBe(true);
+    expect(store.getTask(task.identifier)!.state).toBe("Done");
+    expect(store.getComments(task.identifier)[0].body).toBe("Completed by fake agent");
+
+    await orchestrator.refresh(); // reconciliation sees terminal state
+    expect(state.toSnapshot().workers.filter((w) => w.phase !== "released")).toHaveLength(0);
+
+    await orchestrator.stop();
+    tracker.close();
+    store.close();
+  }, 20_000);
 });

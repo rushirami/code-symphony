@@ -74,20 +74,49 @@ describe("StateManager", () => {
     expect(w.sessionId).toBe("s1"); // preserved
   });
 
-  it("tracks turnsCompleted and totalCostUsd", () => {
+  it("accumulateTurnStats updates turnsCompleted, cost, duration, and sessionId", () => {
     const sm = createStateManager();
-    const w = sm.claim(makeIssue());
-    expect(w.turnsCompleted).toBe(0);
-    expect(w.totalCostUsd).toBe(0);
-
+    sm.claim(makeIssue());
     sm.markRunning("PROJ-1", "s1");
-    const worker = sm.getWorker("PROJ-1")!;
-    worker.turnsCompleted = 3;
-    worker.totalCostUsd = 0.15;
+
+    sm.accumulateTurnStats("PROJ-1", {
+      numTurns: 1,
+      totalCostUsd: 0.10,
+      durationMs: 500,
+      sessionId: "s2",
+    });
+
+    const w = sm.getWorker("PROJ-1")!;
+    expect(w.turnsCompleted).toBe(1);
+    expect(w.totalCostUsd).toBe(0.10);
+    expect(w.totalDurationMs).toBe(500);
+    expect(w.sessionId).toBe("s2");
+
+    sm.accumulateTurnStats("PROJ-1", {
+      numTurns: 1,
+      totalCostUsd: 0.05,
+      durationMs: 300,
+      sessionId: "s2",
+    });
+
+    expect(w.turnsCompleted).toBe(2);
+    expect(w.totalCostUsd).toBeCloseTo(0.15);
+    expect(w.totalDurationMs).toBe(800);
 
     const snap = sm.toSnapshot();
-    expect(snap.totalTurnsCompleted).toBe(3);
-    expect(snap.totalCostUsd).toBe(0.15);
+    expect(snap.totalTurnsCompleted).toBe(2);
+    expect(snap.totalCostUsd).toBeCloseTo(0.15);
+  });
+
+  it("updateIssueState updates the issue state snapshot", () => {
+    const sm = createStateManager();
+    sm.claim(makeIssue({ state: "Todo" }));
+    sm.markRunning("PROJ-1", "s1");
+
+    sm.updateIssueState("PROJ-1", "In Progress");
+
+    const w = sm.getWorker("PROJ-1")!;
+    expect(w.issue.state).toBe("In Progress");
   });
 
   it("markFailed with attempts < max queues retry", () => {
@@ -193,7 +222,7 @@ describe("StateManager", () => {
     expect(sm.toSnapshot().workers).toHaveLength(0);
   });
 
-  it("full retry lifecycle: claim → running → retry → reclaim → running → completed", () => {
+  it("full retry lifecycle: claim → running → retry → reclaimForRetry → running → completed", () => {
     const sm = createStateManager();
     const issue = makeIssue();
 
@@ -204,20 +233,37 @@ describe("StateManager", () => {
     expect(sm.getWorker("PROJ-1")!.phase).toBe("retry_queued");
     expect(sm.getRetryReady()).toHaveLength(1);
 
-    // Re-claim for retry: release retry_queued, then re-claim
-    const w = sm.getWorker("PROJ-1")!;
-    const attempts = w.attempts;
-    const sessionId = w.sessionId;
-
-    // To retry: release old entry, claim fresh, preserve attempts + sessionId
-    sm.release("PROJ-1");
-    const fresh = sm.claim(issue);
-    fresh.attempts = attempts;
-    fresh.sessionId = sessionId;
+    // Atomically reclaim for retry — preserves attempts, sessionId, costs
+    const fresh = sm.reclaimForRetry("PROJ-1");
+    expect(fresh.phase).toBe("claimed");
+    expect(fresh.attempts).toBe(1);
+    expect(fresh.sessionId).toBe("s1");
 
     sm.markRunning("PROJ-1", "s2");
     sm.markCompleted("PROJ-1");
 
     expect(sm.getAllActive()).toHaveLength(0);
+  });
+
+  it("reclaimForRetry preserves accumulated stats", () => {
+    const sm = createStateManager();
+    sm.claim(makeIssue());
+    sm.markRunning("PROJ-1", "s1");
+
+    sm.accumulateTurnStats("PROJ-1", {
+      numTurns: 1,
+      totalCostUsd: 0.10,
+      durationMs: 500,
+      sessionId: "s1",
+    });
+
+    sm.markFailed("PROJ-1", "error", 3, 0);
+    const fresh = sm.reclaimForRetry("PROJ-1");
+
+    expect(fresh.turnsCompleted).toBe(1);
+    expect(fresh.totalCostUsd).toBe(0.10);
+    expect(fresh.totalDurationMs).toBe(500);
+    expect(fresh.sessionId).toBe("s1");
+    expect(fresh.attempts).toBe(1);
   });
 });

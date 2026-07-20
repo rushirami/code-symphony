@@ -202,6 +202,9 @@ export interface StateManager {
   markCompleted(identifier: string): void;
   markFailed(identifier: string, error: string, maxRetries: number, retryDelay: number): void;
   release(identifier: string): void;
+  accumulateTurnStats(identifier: string, result: TurnResult): void;
+  updateIssueState(identifier: string, state: string): void;
+  reclaimForRetry(identifier: string): WorkerRun;
   getWorker(identifier: string): WorkerRun | undefined;
   getRunning(): WorkerRun[];
   getClaimed(): WorkerRun[];

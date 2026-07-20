@@ -3,6 +3,7 @@ import type {
   WorkerRun,
   WorkerPhase,
   TrackerIssue,
+  TurnResult,
   OrchestratorSnapshot,
 } from "../types.js";
 
@@ -90,6 +91,43 @@ export function createStateManager(): StateManager {
     }
   }
 
+  function accumulateTurnStats(identifier: string, result: TurnResult): void {
+    const w = requireWorker(identifier);
+    w.turnsCompleted += 1;
+    w.totalCostUsd += result.totalCostUsd;
+    w.totalDurationMs += result.durationMs;
+    w.sessionId = result.sessionId;
+  }
+
+  function updateIssueState(identifier: string, state: string): void {
+    const w = requireWorker(identifier);
+    w.issue.state = state;
+  }
+
+  function reclaimForRetry(identifier: string): WorkerRun {
+    const w = requireWorker(identifier);
+    const { issue, attempts, sessionId, turnsCompleted, totalCostUsd, totalDurationMs } = w;
+    workers.delete(identifier);
+
+    const fresh: WorkerRun = {
+      issue,
+      phase: "claimed",
+      sessionId,
+      attempts,
+      turnsCompleted,
+      totalCostUsd,
+      totalDurationMs,
+      lastError: null,
+      claimedAt: Date.now(),
+      startedAt: null,
+      completedAt: null,
+      retryAfter: null,
+      lastActivityAt: null,
+    };
+    workers.set(issue.identifier, fresh);
+    return fresh;
+  }
+
   function release(identifier: string): void {
     workers.delete(identifier);
   }
@@ -140,6 +178,9 @@ export function createStateManager(): StateManager {
     markCompleted,
     markFailed,
     release,
+    accumulateTurnStats,
+    updateIssueState,
+    reclaimForRetry,
     getWorker,
     getRunning,
     getClaimed,

@@ -109,12 +109,17 @@ export function createAgentRunner(config: AgentConfig, log: Logger): AgentRunner
 
     // Per-issue log file
     let logStream: WriteStream | null = null;
+    const logBuffer: string[] = [];
     const logDir = path.join(opts.workspacePath, ".symphony");
     mkdir(logDir, { recursive: true })
       .then(() => {
         logStream = createWriteStream(
           path.join(logDir, `turn-${opts.turn}.ndjson`),
         );
+        for (const buffered of logBuffer) {
+          logStream.write(buffered + "\n");
+        }
+        logBuffer.length = 0;
       })
       .catch(() => {
         // Non-critical: if log dir fails, just skip logging to file
@@ -124,7 +129,11 @@ export function createAgentRunner(config: AgentConfig, log: Logger): AgentRunner
     let gotResult = false;
 
     rl.on("line", (line) => {
-      logStream?.write(line + "\n");
+      if (logStream) {
+        logStream.write(line + "\n");
+      } else {
+        logBuffer.push(line);
+      }
       try {
         const event = JSON.parse(line) as AgentEvent;
         if (event.type === "result") gotResult = true;

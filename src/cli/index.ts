@@ -8,27 +8,85 @@ const PRIORITY_NAMES = ["none", "urgent", "high", "medium", "low"] as const;
 const BOOLEAN_FLAGS = new Set(["all", "help"]);
 const FLAG_ALIASES: Record<string, string> = { d: "description", p: "priority", l: "labels" };
 
-interface ParsedArgs { positionals: string[]; flags: Record<string, string | boolean> }
+// Flags every command accepts, plus --help everywhere (it just prints usage).
+const COMMON_FLAGS = ["db", "author", "help"];
+// Per-command additional flags (long names). Commands absent here take common only.
+const COMMAND_FLAGS: Record<string, string[]> = {
+  add: ["description", "priority", "labels", "state", "blocked-by", "branch"],
+  list: ["state", "label", "all"],
+  show: [],
+  state: [],
+  done: ["note"],
+  cancel: ["note"],
+  comment: [],
+  edit: ["title", "description", "priority"],
+  block: ["by"],
+  unblock: ["by"],
+  history: [],
+};
+// Maximum positional arguments each command consumes; extras are rejected.
+const MAX_POSITIONALS: Record<string, number> = {
+  add: 1, list: 0, show: 1, state: 2, done: 1, cancel: 1,
+  comment: 2, edit: 1, block: 1, unblock: 1, history: 1,
+};
+
+interface ParsedArgs {
+  positionals: string[];
+  flags: Record<string, string | boolean>;
+  unknownFlags: string[];
+}
 
 function parseArgs(argv: string[]): ParsedArgs {
   const positionals: string[] = [];
   const flags: Record<string, string | boolean> = {};
+  const unknownFlags: string[] = [];
   for (let i = 0; i < argv.length; i++) {
     const arg = argv[i];
-    const isLong = arg.startsWith("--");
-    const isShort = !isLong && arg.startsWith("-") && arg.length === 2 && FLAG_ALIASES[arg[1]] !== undefined;
-    if (isLong || isShort) {
-      const name = isLong ? arg.slice(2) : FLAG_ALIASES[arg[1]];
-      if (BOOLEAN_FLAGS.has(name)) { flags[name] = true; continue; }
-      const next = argv[i + 1];
-      if (next === undefined) throw new Error(`Flag --${name} requires a value`);
-      flags[name] = next;
-      i++;
+    const isLong = arg.startsWith("--") && arg.length > 2;
+    const isShort = !isLong && arg.length === 2 && arg[0] === "-" && /[a-zA-Z]/.test(arg[1]);
+    if (!isLong && !isShort) { positionals.push(arg); continue; }
+    let name: string;
+    if (isLong) {
+      name = arg.slice(2);
     } else {
-      positionals.push(arg);
+      const alias = FLAG_ALIASES[arg[1]];
+      if (alias === undefined) {
+        // Unaliased short flag (e.g. -n): record it and swallow any value so it
+        // does not silently leak into positionals; validation will reject it.
+        unknownFlags.push(arg);
+        const next = argv[i + 1];
+        if (next !== undefined && !next.startsWith("-")) i++;
+        continue;
+      }
+      name = alias;
+    }
+    if (BOOLEAN_FLAGS.has(name)) { flags[name] = true; continue; }
+    const next = argv[i + 1];
+    if (next === undefined) throw new Error(`Flag ${isLong ? `--${name}` : arg} requires a value`);
+    flags[name] = next;
+    i++;
+  }
+  return { positionals, flags, unknownFlags };
+}
+
+// Reject any flag not recognized for the command and any excess positionals.
+// Unknown commands are left to the switch's default so they report as such.
+function validateArgs(command: string, parsed: ParsedArgs): void {
+  const specific = COMMAND_FLAGS[command];
+  if (specific === undefined) return; // unknown command: handled downstream
+  for (const raw of parsed.unknownFlags) {
+    throw new Error(`Unknown flag "${raw}" for command "${command}". Run: symphony help`);
+  }
+  const allowed = new Set([...COMMON_FLAGS, ...specific]);
+  for (const name of Object.keys(parsed.flags)) {
+    if (!allowed.has(name)) {
+      throw new Error(`Unknown flag "--${name}" for command "${command}". Run: symphony help`);
     }
   }
-  return { positionals, flags };
+  const max = MAX_POSITIONALS[command] ?? 0;
+  if (parsed.positionals.length > max) {
+    throw new Error(`Unexpected argument "${parsed.positionals[max]}" for command "${command}". Run: symphony help`);
+  }
 }
 
 function str(flags: ParsedArgs["flags"], name: string): string | undefined {
@@ -143,12 +201,15 @@ DB resolution: --db, then $SYMPHONY_DB, then tracker.db_path in nearest WORKFLOW
 
 function main(): void {
   const [command, ...rest] = process.argv.slice(2);
-  const { positionals, flags } = parseArgs(rest);
+  const parsed = parseArgs(rest);
+  const { positionals, flags } = parsed;
 
   if (!command || command === "help" || flags.help === true) {
     console.log(USAGE);
     return;
   }
+
+  validateArgs(command, parsed);
 
   const ctx = resolveDbContext(flags);
   const store = createTaskStore(ctx.dbPath, { identifierPrefix: ctx.prefix });

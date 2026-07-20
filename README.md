@@ -118,8 +118,8 @@ You are working on {{ issue.identifier }}: {{ issue.title }}
 2. Implement the changes
 3. Write tests
 4. Commit with a descriptive message
-5. When the work is complete, run: `symphony done {{ issue.identifier }} --note "<markdown summary of what you did>"`
-6. If you are blocked, run: `symphony comment {{ issue.identifier }} "<what is blocking you>"` then `symphony state {{ issue.identifier }} "In Review"`
+5. When the work is complete, run: `symphony done {{ issue.identifier }} --note "<markdown summary of what you did>" --author "agent:{{ issue.identifier }}"`
+6. If you are blocked, run: `symphony comment {{ issue.identifier }} "<what is blocking you>" --author "agent:{{ issue.identifier }}"` then `symphony state {{ issue.identifier }} "In Review" --author "agent:{{ issue.identifier }}"`
 ```
 
 Environment variables are resolved via `$VAR` or `${VAR}` syntax. The prompt template uses [Liquid](https://liquidjs.com/) with strict mode — undefined variables/filters cause errors. `db_path` is resolved relative to the `WORKFLOW.md` file's directory, and the orchestrator injects it into every dispatched agent as `SYMPHONY_DB` so the `symphony` CLI finds the same database with no extra flags.

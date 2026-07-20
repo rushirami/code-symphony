@@ -36,8 +36,8 @@ You are working on {{ issue.identifier }}: {{ issue.title }}
 2. Implement the changes described above
 3. Write tests if applicable
 4. Commit your changes with a descriptive message
-5. When the work is complete, run: `symphony done {{ issue.identifier }} --note "<markdown summary of what you did>"`
-6. If you are blocked, run: `symphony comment {{ issue.identifier }} "<what is blocking you>"` then `symphony state {{ issue.identifier }} "In Review"`
+5. When the work is complete, run: `symphony done {{ issue.identifier }} --note "<markdown summary of what you did>" --author "agent:{{ issue.identifier }}"`
+6. If you are blocked, run: `symphony comment {{ issue.identifier }} "<what is blocking you>" --author "agent:{{ issue.identifier }}"` then `symphony state {{ issue.identifier }} "In Review" --author "agent:{{ issue.identifier }}"`
 {% if attempt %}
 Note: This is retry attempt #{{ attempt }}. Review previous work and continue from where you left off.
 {% endif %}

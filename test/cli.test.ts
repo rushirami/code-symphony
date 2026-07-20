@@ -144,4 +144,42 @@ body
     expect(byLabel.stdout).toContain("TASK-1");
     expect(byLabel.stdout).not.toContain("TASK-2");
   }, 15000);
+
+  it("rejects an unaliased short flag and does not silently apply the command", async () => {
+    const dir = await useTmpDir();
+    const env = { SYMPHONY_DB: path.join(dir, "tasks.db") };
+    runCli(["add", "Ship it", "--state", "Todo"], { env });
+
+    const bad = runCli(["done", "TASK-1", "-n", "sneaky note"], { env });
+    expect(bad.code).toBe(1);
+    expect(bad.stderr).toContain('-n');
+    expect(bad.stderr).toContain("done");
+
+    // The command must NOT have taken effect: task still not Done, no comment recorded.
+    const store = createTaskStore(path.join(dir, "tasks.db"));
+    expect(store.getTask("TASK-1")!.state).not.toBe("Done");
+    expect(store.getComments("TASK-1")).toHaveLength(0);
+    store.close();
+  });
+
+  it("rejects an unknown long flag naming the offending flag", async () => {
+    const dir = await useTmpDir();
+    const env = { SYMPHONY_DB: path.join(dir, "tasks.db") };
+    const bad = runCli(["add", "x", "--labl", "bug"], { env });
+    expect(bad.code).toBe(1);
+    expect(bad.stderr).toContain("--labl");
+    expect(bad.stderr).toContain("add");
+  });
+
+  it("rejects extra positional arguments", async () => {
+    const dir = await useTmpDir();
+    const env = { SYMPHONY_DB: path.join(dir, "tasks.db") };
+    runCli(["add", "x", "--state", "Todo"], { env });
+    const bad = runCli(["state", "TASK-1", "Done", "extra"], { env });
+    expect(bad.code).toBe(1);
+    expect(bad.stderr).toContain("extra");
+    // And a flag not allowed for this command is rejected too (author/db still allowed).
+    expect(runCli(["show", "TASK-1", "--note", "x"], { env }).code).toBe(1);
+    expect(runCli(["show", "TASK-1", "--author", "rushi"], { env }).code).toBe(0);
+  });
 });

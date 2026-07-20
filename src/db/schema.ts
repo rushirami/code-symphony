@@ -77,7 +77,30 @@ function migrate(db: Database.Database): void {
       `Database was created by a newer schema (version ${version}, supported ${SCHEMA_VERSION}). Upgrade claude-symphony.`,
     );
   }
-  // version 0 = fresh file. Future migrations: if (version < 2) { ... } etc.
-  db.exec(DDL);
-  db.pragma(`user_version = ${SCHEMA_VERSION}`);
+  // version < SCHEMA_VERSION: apply migration atomically so two processes racing
+  // on a fresh DB cannot both run the DDL. BEGIN IMMEDIATE takes the write lock
+  // up front (blocking the loser via busy_timeout); we then re-read user_version
+  // inside the lock and only run the DDL if it is still 0. PRAGMA user_version is
+  // transactional in SQLite, so the version bump commits atomically with the DDL.
+  db.exec("BEGIN IMMEDIATE");
+  try {
+    const current = db.pragma("user_version", { simple: true }) as number;
+    if (current > SCHEMA_VERSION) {
+      db.exec("ROLLBACK");
+      db.close();
+      throw new Error(
+        `Database was created by a newer schema (version ${current}, supported ${SCHEMA_VERSION}). Upgrade claude-symphony.`,
+      );
+    }
+    if (current === 0) {
+      // version 0 = fresh file. Future migrations: if (current < 2) { ... } etc.
+      db.exec(DDL);
+      db.pragma(`user_version = ${SCHEMA_VERSION}`);
+    }
+    // current === SCHEMA_VERSION: another process migrated while we waited; no-op.
+    db.exec("COMMIT");
+  } catch (err) {
+    if (db.open && db.inTransaction) db.exec("ROLLBACK");
+    throw err;
+  }
 }

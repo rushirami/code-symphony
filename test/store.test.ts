@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
 import path from "node:path";
+import { spawn } from "node:child_process";
 import Database from "better-sqlite3";
 import { openDatabase, SCHEMA_VERSION } from "../src/db/schema.js";
 import { createTaskStore, STATES } from "../src/db/store.js";
@@ -41,6 +42,35 @@ describe("schema", () => {
     raw.close();
     expect(() => openDatabase(p)).toThrow(/newer schema/i);
   });
+
+  it("two processes migrating the SAME fresh db concurrently both succeed", async () => {
+    const dir = await useTmpDir();
+    const dbPath = path.join(dir, "race.db");
+    const schema = path.resolve(import.meta.dirname, "../src/db/schema.ts");
+    // Each child dynamically imports the schema module and opens the same fresh db.
+    // Without the atomic BEGIN IMMEDIATE migration, the loser of the race throws
+    // "table tasks already exists"; with it, the loser re-reads user_version==1
+    // inside the lock and no-ops.
+    const code = `import(${JSON.stringify(schema)}).then((m) => {`
+      + ` const db = m.openDatabase(process.env.RACE_DB); db.close(); process.exit(0);`
+      + ` }).catch((e) => { console.error(e && e.message ? e.message : String(e)); process.exit(1); });`;
+    const spawnOne = () =>
+      new Promise<{ code: number; stderr: string }>((resolve) => {
+        const cp = spawn("npx", ["tsx", "-e", code], {
+          env: { ...process.env, RACE_DB: dbPath },
+        });
+        let stderr = "";
+        cp.stderr.on("data", (d) => { stderr += String(d); });
+        cp.on("close", (c) => resolve({ code: c ?? 1, stderr }));
+      });
+    const [a, b] = await Promise.all([spawnOne(), spawnOne()]);
+    expect(a.code, `proc A stderr: ${a.stderr}`).toBe(0);
+    expect(b.code, `proc B stderr: ${b.stderr}`).toBe(0);
+    // The db is usable and at the expected version afterward.
+    const db = openDatabase(dbPath);
+    expect(db.pragma("user_version", { simple: true })).toBe(SCHEMA_VERSION);
+    db.close();
+  }, 30000);
 });
 
 async function makeStore() {

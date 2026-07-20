@@ -105,7 +105,7 @@ body {
   border-radius: 6px;
   margin: 4px 0 12px;
 }
-.panel .row { display: flex; gap: 8px; align-items: center; }
+.panel .row, .modal .row { display: flex; gap: 8px; align-items: center; }
 .modal {
   position: fixed;
   top: 10vh;

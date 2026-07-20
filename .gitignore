@@ -7,3 +7,5 @@ workspaces/
 tasks.db
 tasks.db-wal
 tasks.db-shm
+web/node_modules
+web/dist

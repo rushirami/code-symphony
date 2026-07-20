@@ -16,6 +16,10 @@ describe("priorityRank", () => {
     expect(priorityRank(0)).toBeGreaterThan(priorityRank(4));
     expect(priorityRank(1)).toBeLessThan(priorityRank(2));
   });
+
+  it("maps none (0) to the 999 backend-contract sentinel", () => {
+    expect(priorityRank(0)).toBe(999);
+  });
 });
 
 describe("compareCards", () => {
@@ -38,6 +42,14 @@ describe("groupByState", () => {
     expect(groups.get("Backlog")).toEqual([]);
     expect(groups.get("Todo")).toHaveLength(1);
   });
+
+  it("sorts each bucket by compareCards, not insertion order", () => {
+    const none = task({ identifier: "TASK-1", state: "Todo", priority: 0, updatedAt: "2026-07-10T00:00:00Z" });
+    const urgent = task({ id: 2, identifier: "TASK-2", state: "Todo", priority: 1, updatedAt: "2026-07-01T00:00:00Z" });
+    const high = task({ id: 3, identifier: "TASK-3", state: "Todo", priority: 2, updatedAt: "2026-07-05T00:00:00Z" });
+    const groups = groupByState([none, urgent, high], ["Todo"]);
+    expect(groups.get("Todo")?.map((t) => t.identifier)).toEqual(["TASK-2", "TASK-3", "TASK-1"]);
+  });
 });
 
 describe("isBlocked", () => {
@@ -45,6 +57,19 @@ describe("isBlocked", () => {
     expect(isBlocked(task({ blockedBy: [{ id: 2, identifier: "TASK-2", state: "Todo" }] }))).toBe(true);
     expect(isBlocked(task({ blockedBy: [{ id: 2, identifier: "TASK-2", state: "Done" }] }))).toBe(false);
     expect(isBlocked(task({}))).toBe(false);
+  });
+
+  it("is true when only one of several blockers is still non-terminal", () => {
+    expect(
+      isBlocked(
+        task({
+          blockedBy: [
+            { id: 2, identifier: "TASK-2", state: "Done" },
+            { id: 3, identifier: "TASK-3", state: "Todo" },
+          ],
+        }),
+      ),
+    ).toBe(true);
   });
 });
 

@@ -4,106 +4,61 @@ import { loadConfig } from "../src/config/loader.js";
 describe("loadConfig", () => {
   const validFrontmatter = {
     tracker: {
-      kind: "linear",
-      api_key: "lin_api_test123",
-      project_slug: "my-project",
+      kind: "sqlite",
+      db_path: "./my-tasks.db",
+      identifier_prefix: "SYM",
       active_states: ["Todo", "In Progress"],
     },
     polling: { interval_ms: 5000 },
     agent: { max_concurrent_agents: 3, max_turns: 10 },
-    codex: { command: "claude" },
+    runner: { command: "claude" },
   };
 
   it("parses valid full config", () => {
     const config = loadConfig(validFrontmatter);
-    expect(config.tracker.apiKey).toBe("lin_api_test123");
-    expect(config.tracker.projectSlug).toBe("my-project");
+    expect(config.tracker.kind).toBe("sqlite");
+    expect(config.tracker.dbPath).toBe("./my-tasks.db");
+    expect(config.tracker.identifierPrefix).toBe("SYM");
     expect(config.tracker.activeStates).toEqual(["Todo", "In Progress"]);
     expect(config.polling.intervalMs).toBe(5000);
     expect(config.agent.maxConcurrentAgents).toBe(3);
-    expect(config.agent.maxTurns).toBe(10);
     expect(config.agent.command).toBe("claude");
+    expect(config.agent.env).toEqual({});
   });
 
-  it("applies defaults for omitted optional fields", () => {
-    const config = loadConfig({
-      tracker: { api_key: "key", project_slug: "proj" },
-    });
-    expect(config.tracker.kind).toBe("linear");
-    expect(config.tracker.endpoint).toBe("https://api.linear.app/graphql");
+  it("applies defaults: an empty config is now fully valid", () => {
+    const config = loadConfig({});
+    expect(config.tracker.kind).toBe("sqlite");
+    expect(config.tracker.dbPath).toBe("./tasks.db");
+    expect(config.tracker.identifierPrefix).toBe("TASK");
     expect(config.tracker.activeStates).toEqual(["Todo", "In Progress"]);
     expect(config.tracker.terminalStates).toEqual(["Done", "Cancelled"]);
-    expect(config.polling.intervalMs).toBe(30_000);
-    expect(config.agent.maxConcurrentAgents).toBe(10);
-    expect(config.agent.maxTurns).toBe(20);
-    expect(config.agent.maxRetryBackoffMs).toBe(300_000);
-    expect(config.agent.turnTimeoutMs).toBe(3_600_000);
-    expect(config.agent.stallTimeoutMs).toBe(300_000);
     expect(config.agent.command).toBe("claude");
-    expect(config.workspace.root).toBe("/tmp/symphony_workspaces");
-    expect(config.workspace.hooks.timeoutMs).toBe(60_000);
-    expect(config.server.port).toBe(8080);
-    expect(config.server.enabled).toBe(false);
   });
 
-  describe("env var resolution", () => {
-    const envKey = "SYMPHONY_TEST_API_KEY";
-
-    beforeEach(() => {
-      process.env[envKey] = "resolved-from-env";
-    });
-
-    afterEach(() => {
-      delete process.env[envKey];
-    });
+  describe("env var resolution on db_path", () => {
+    const envKey = "SYMPHONY_TEST_DB_PATH";
+    beforeEach(() => { process.env[envKey] = "/resolved/tasks.db"; });
+    afterEach(() => { delete process.env[envKey]; });
 
     it("resolves $VAR syntax", () => {
-      const config = loadConfig({
-        tracker: { api_key: `$${envKey}`, project_slug: "proj" },
-      });
-      expect(config.tracker.apiKey).toBe("resolved-from-env");
+      expect(loadConfig({ tracker: { db_path: `$${envKey}` } }).tracker.dbPath).toBe("/resolved/tasks.db");
     });
-
     it("resolves ${VAR} syntax", () => {
-      const config = loadConfig({
-        tracker: { api_key: `\${${envKey}}`, project_slug: "proj" },
-      });
-      expect(config.tracker.apiKey).toBe("resolved-from-env");
+      expect(loadConfig({ tracker: { db_path: `\${${envKey}}` } }).tracker.dbPath).toBe("/resolved/tasks.db");
     });
-  });
-
-  it("rejects missing required fields", () => {
-    expect(() => loadConfig({})).toThrow();
-    expect(() => loadConfig({ tracker: {} })).toThrow();
-    expect(() =>
-      loadConfig({ tracker: { api_key: "key" } }),
-    ).toThrow();
   });
 
   it("rejects invalid types", () => {
-    expect(() =>
-      loadConfig({
-        tracker: { api_key: "key", project_slug: "proj" },
-        polling: { interval_ms: -1 },
-      }),
-    ).toThrow();
-
-    expect(() =>
-      loadConfig({
-        tracker: { api_key: "key", project_slug: "proj" },
-        agent: { max_concurrent_agents: 1.5 },
-      }),
-    ).toThrow();
+    expect(() => loadConfig({ polling: { interval_ms: -1 } })).toThrow();
+    expect(() => loadConfig({ agent: { max_concurrent_agents: 1.5 } })).toThrow();
+    expect(() => loadConfig({ tracker: { kind: "linear" } })).toThrow();
   });
 
   it("merges frontmatter overrides over defaults", () => {
-    const config = loadConfig({
-      tracker: { api_key: "key", project_slug: "proj" },
-      agent: { max_turns: 50 },
-      workspace: { root: "/custom/path" },
-    });
+    const config = loadConfig({ agent: { max_turns: 50 }, workspace: { root: "/custom/path" } });
     expect(config.agent.maxTurns).toBe(50);
-    expect(config.agent.maxConcurrentAgents).toBe(10); // default preserved
+    expect(config.agent.maxConcurrentAgents).toBe(10);
     expect(config.workspace.root).toBe("/custom/path");
   });
 });

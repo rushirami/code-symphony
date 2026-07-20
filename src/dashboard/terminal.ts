@@ -1,3 +1,4 @@
+import path from "node:path";
 import type { StateManager, SymphonyConfig } from "../types.js";
 
 const ESC = "\x1b";
@@ -51,7 +52,7 @@ export function createTerminalDashboard(
     const lines: string[] = [];
 
     lines.push(CLEAR);
-    lines.push(`${BOLD}${BLUE}♫ Symphony${RESET}  ${DIM}${config.tracker.projectSlug}${RESET}`);
+    lines.push(`${BOLD}${BLUE}♫ Symphony${RESET}  ${DIM}${path.basename(config.tracker.dbPath)}${RESET}`);
     lines.push(`${DIM}Uptime: ${uptime}  |  Poll: ${config.polling.intervalMs / 1000}s  |  Max agents: ${config.agent.maxConcurrentAgents}${RESET}`);
     lines.push("");
 

@@ -10,9 +10,8 @@ function toSymphonyConfig(p: ParsedWorkflowFrontmatter): SymphonyConfig {
   return {
     tracker: {
       kind: p.tracker.kind,
-      endpoint: p.tracker.endpoint,
-      apiKey: p.tracker.api_key,
-      projectSlug: p.tracker.project_slug,
+      dbPath: p.tracker.db_path,
+      identifierPrefix: p.tracker.identifier_prefix,
       activeStates: p.tracker.active_states,
       terminalStates: p.tracker.terminal_states,
     },
@@ -20,7 +19,8 @@ function toSymphonyConfig(p: ParsedWorkflowFrontmatter): SymphonyConfig {
       intervalMs: p.polling.interval_ms,
     },
     agent: {
-      command: p.codex.command,
+      command: p.runner.command,
+      env: {},
       maxConcurrentAgents: p.agent.max_concurrent_agents,
       maxConcurrentAgentsByState: p.agent.max_concurrent_agents_by_state,
       maxTurns: p.agent.max_turns,

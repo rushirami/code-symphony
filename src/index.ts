@@ -1,7 +1,8 @@
+import path from "node:path";
 import chokidar from "chokidar";
 import { parseWorkflow } from "./workflow/parser.js";
 import { loadConfig } from "./config/loader.js";
-import { createLinearClient } from "./tracker/linear.js";
+import { createSqliteTracker } from "./tracker/sqlite.js";
 import { createStateManager } from "./orchestrator/state.js";
 import { createOrchestrator } from "./orchestrator/loop.js";
 import { createWorkspaceManager } from "./workspace/manager.js";
@@ -21,9 +22,12 @@ async function main() {
 
   // 2. Load + validate config
   let config = loadConfig(workflow.config);
+  const workflowDir = path.dirname(path.resolve(WORKFLOW_PATH));
+  config.tracker.dbPath = path.resolve(workflowDir, config.tracker.dbPath);
+  config.agent.env = { SYMPHONY_DB: config.tracker.dbPath };
   logger.info(
     {
-      project: config.tracker.projectSlug,
+      db: config.tracker.dbPath,
       maxConcurrent: config.agent.maxConcurrentAgents,
       pollInterval: config.polling.intervalMs,
     },
@@ -31,7 +35,7 @@ async function main() {
   );
 
   // 3. Terminal cleanup
-  const tracker = createLinearClient(config.tracker, createChildLogger({ module: "tracker" }));
+  const tracker = createSqliteTracker(config.tracker, createChildLogger({ module: "tracker" }));
   try {
     const terminalIssues = await tracker.fetchIssuesByStates(config.tracker.terminalStates);
     const workspacesForCleanup = createWorkspaceManager(config.workspace, createChildLogger({ module: "cleanup" }));
@@ -97,6 +101,8 @@ async function main() {
     try {
       const newWorkflow = await parseWorkflow(WORKFLOW_PATH);
       const newConfig = loadConfig(newWorkflow.config);
+      newConfig.tracker.dbPath = path.resolve(workflowDir, newConfig.tracker.dbPath);
+      newConfig.agent.env = { SYMPHONY_DB: newConfig.tracker.dbPath };
       orchestrator.updateConfig(newConfig);
       orchestrator.updateTemplate(newWorkflow.templateBody);
       config = newConfig;
@@ -113,6 +119,7 @@ async function main() {
     if (dashboard) dashboard.stop();
     await watcher.close();
     await orchestrator.stop();
+    tracker.close();
     if (statusServer) await statusServer.stop();
     logger.info("Goodbye");
     process.exit(0);

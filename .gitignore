@@ -3,3 +3,7 @@ dist/
 workspaces/
 *.tsbuildinfo
 .env
+.superpowers/
+tasks.db
+tasks.db-wal
+tasks.db-shm

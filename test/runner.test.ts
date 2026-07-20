@@ -12,6 +12,7 @@ const fixturesDir = path.resolve(import.meta.dirname, "fixtures");
 function makeAgentConfig(command: string, overrides: Partial<AgentConfig> = {}): AgentConfig {
   return {
     command,
+    env: {},
     maxConcurrentAgents: 2,
     maxConcurrentAgentsByState: {},
     maxTurns: 5,

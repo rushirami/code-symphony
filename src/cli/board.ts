@@ -16,10 +16,20 @@ export async function runBoard(flags: Flags): Promise<void> {
   const server = createBoardServer({ port, dbPath, actor, identifierPrefix: prefix, webDist, log });
   await server.start();
   console.log(`Board UI at http://localhost:${server.port} (db: ${dbPath})`);
-  const shutdown = async (): Promise<void> => {
-    await server.stop();
-    process.exit(0);
+  let shuttingDown = false;
+  const shutdown = (): void => {
+    if (shuttingDown) return;
+    shuttingDown = true;
+    // Force-exit if stop() hangs; unref so this timer never keeps the process alive.
+    setTimeout(() => process.exit(1), 5000).unref();
+    server.stop().then(
+      () => process.exit(0),
+      (err) => {
+        console.error(err instanceof Error ? err.message : String(err));
+        process.exit(1);
+      },
+    );
   };
-  process.on("SIGINT", () => void shutdown());
-  process.on("SIGTERM", () => void shutdown());
+  process.on("SIGINT", shutdown);
+  process.on("SIGTERM", shutdown);
 }

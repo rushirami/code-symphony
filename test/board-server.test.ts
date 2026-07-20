@@ -110,6 +110,87 @@ describe("board server: read + create", () => {
   });
 });
 
+describe("board server: mutations", () => {
+  beforeEach(async () => {
+    await startBoard();
+    await post("/api/tasks", { title: "A", state: "Backlog" });
+    await post("/api/tasks", { title: "B", state: "Todo" });
+  });
+
+  it("PATCH /api/tasks/:id edits title, description, priority", async () => {
+    const res = await post("/api/tasks/TASK-1", { title: "A2", description: "desc", priority: 2 }, "PATCH");
+    expect(res.status).toBe(200);
+    const task = await res.json();
+    expect(task.title).toBe("A2");
+    expect(task.description).toBe("desc");
+    expect(task.priority).toBe(2);
+  });
+
+  it("PATCH with invalid priority returns 400", async () => {
+    const res = await post("/api/tasks/TASK-1", { priority: 7 }, "PATCH");
+    expect(res.status).toBe(400);
+  });
+
+  it("PUT /api/tasks/:id/state moves the task", async () => {
+    const res = await post("/api/tasks/TASK-1/state", { state: "In Progress" }, "PUT");
+    expect(res.status).toBe(200);
+    expect((await res.json()).state).toBe("In Progress");
+  });
+
+  it("PUT state with unknown state returns 400", async () => {
+    const res = await post("/api/tasks/TASK-1/state", { state: "Nope" }, "PUT");
+    expect(res.status).toBe(400);
+    expect((await res.json()).error).toMatch(/Unknown state/);
+  });
+
+  it("PUT state on unknown task returns 404", async () => {
+    const res = await post("/api/tasks/TASK-99/state", { state: "Todo" }, "PUT");
+    expect(res.status).toBe(404);
+  });
+
+  it("POST /api/tasks/:id/comments adds a comment authored by the server actor", async () => {
+    const res = await post("/api/tasks/TASK-1/comments", { body: "hello" });
+    expect(res.status).toBe(201);
+    const comment = await res.json();
+    expect(comment.author).toBe("rushi");
+    expect(comment.body).toBe("hello");
+    const detail = await (await fetch(`${url}/api/tasks/TASK-1`)).json();
+    expect(detail.comments).toHaveLength(1);
+  });
+
+  it("POST comment with empty body returns 400", async () => {
+    const res = await post("/api/tasks/TASK-1/comments", { body: "" });
+    expect(res.status).toBe(400);
+  });
+
+  it("PUT and DELETE label", async () => {
+    const put = await fetch(`${url}/api/tasks/TASK-1/labels/bug`, { method: "PUT" });
+    expect(put.status).toBe(204);
+    let detail = await (await fetch(`${url}/api/tasks/TASK-1`)).json();
+    expect(detail.task.labels).toEqual(["bug"]);
+    const del = await fetch(`${url}/api/tasks/TASK-1/labels/bug`, { method: "DELETE" });
+    expect(del.status).toBe(204);
+    detail = await (await fetch(`${url}/api/tasks/TASK-1`)).json();
+    expect(detail.task.labels).toEqual([]);
+  });
+
+  it("PUT and DELETE blocker", async () => {
+    const put = await fetch(`${url}/api/tasks/TASK-1/blockers/TASK-2`, { method: "PUT" });
+    expect(put.status).toBe(204);
+    let detail = await (await fetch(`${url}/api/tasks/TASK-1`)).json();
+    expect(detail.task.blockedBy.map((b: { identifier: string }) => b.identifier)).toEqual(["TASK-2"]);
+    const del = await fetch(`${url}/api/tasks/TASK-1/blockers/TASK-2`, { method: "DELETE" });
+    expect(del.status).toBe(204);
+    detail = await (await fetch(`${url}/api/tasks/TASK-1`)).json();
+    expect(detail.task.blockedBy).toEqual([]);
+  });
+
+  it("PUT blocker with unknown blocker returns 404", async () => {
+    const res = await fetch(`${url}/api/tasks/TASK-1/blockers/TASK-99`, { method: "PUT" });
+    expect(res.status).toBe(404);
+  });
+});
+
 describe("toHttpError", () => {
   it("maps not-found store errors to 404", () => {
     expect(toHttpError(new Error('No task with identifier "TASK-9"')).status).toBe(404);

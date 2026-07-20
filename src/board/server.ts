@@ -154,7 +154,61 @@ export function createBoardServer(opts: BoardServerOptions): BoardServer {
         });
         return;
       }
+      if (method === "PATCH") {
+        const body = await readJsonBody(req);
+        const task = store.editTask(identifier, {
+          title: optString(body, "title"),
+          description: optString(body, "description"),
+          priority: optNumber(body, "priority"),
+        }, actor);
+        sendJson(res, 200, task);
+        return;
+      }
       throw new HttpError(405, "Method not allowed");
+    }
+
+    const subId = segments[4];
+
+    if (sub === "state" && method === "PUT") {
+      const body = await readJsonBody(req);
+      const state = optString(body, "state");
+      if (!state) throw new HttpError(400, '"state" is required');
+      sendJson(res, 200, store.updateState(identifier, state, actor));
+      return;
+    }
+
+    if (sub === "comments" && method === "POST") {
+      const body = await readJsonBody(req);
+      const commentBody = optString(body, "body");
+      if (!commentBody?.trim()) throw new HttpError(400, '"body" is required');
+      sendJson(res, 201, store.addComment(identifier, actor, commentBody));
+      return;
+    }
+
+    if (sub === "labels" && subId) {
+      if (method === "PUT") {
+        store.addLabel(identifier, subId, actor);
+        res.writeHead(204).end();
+        return;
+      }
+      if (method === "DELETE") {
+        store.removeLabel(identifier, subId, actor);
+        res.writeHead(204).end();
+        return;
+      }
+    }
+
+    if (sub === "blockers" && subId) {
+      if (method === "PUT") {
+        store.addBlocker(identifier, subId, actor);
+        res.writeHead(204).end();
+        return;
+      }
+      if (method === "DELETE") {
+        store.removeBlocker(identifier, subId, actor);
+        res.writeHead(204).end();
+        return;
+      }
     }
 
     throw new HttpError(404, "Not found");

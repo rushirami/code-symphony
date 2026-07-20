@@ -242,4 +242,17 @@ describe("board server: SSE", () => {
     expect(await events.read()).toContain("event: changed");
     events.close();
   }, 10_000);
+
+  it("still broadcasts after a stop/start cycle with a pending broadcast", async () => {
+    // Schedule a broadcast, then stop before the 100ms debounce fires.
+    await post("/api/tasks", { title: "pending" });
+    await server.stop();
+    await server.start();
+    url = `http://localhost:${server.port}`;
+    const events = await openEvents();
+    await events.read(); // greeting
+    await post("/api/tasks", { title: "after restart" });
+    expect(await events.read()).toContain("event: changed");
+    events.close();
+  });
 });

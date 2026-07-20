@@ -127,6 +127,7 @@ export function createBoardServer(opts: BoardServerOptions): BoardServer {
     res.write(":ok\n\n");
     sseClients.add(res);
     req.on("close", () => sseClients.delete(res));
+    res.on("error", () => sseClients.delete(res));
   }
 
   async function handleApi(
@@ -288,7 +289,9 @@ export function createBoardServer(opts: BoardServerOptions): BoardServer {
 
     async stop() {
       if (broadcastTimer) clearTimeout(broadcastTimer);
+      broadcastTimer = undefined;
       if (heartbeatTimer) clearInterval(heartbeatTimer);
+      heartbeatTimer = undefined;
       await watcher?.close();
       for (const client of sseClients) client.end();
       sseClients.clear();

@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, afterEach } from "vitest";
-import { render, screen } from "@testing-library/react";
+import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { MemoryRouter, Route, Routes } from "react-router";
@@ -44,6 +44,33 @@ function renderPanel() {
   return fetchMock;
 }
 
+/**
+ * Like renderPanel, but serves a mutable `detail` object so the test can
+ * mutate it and force a refetch (simulating a background SSE-driven
+ * invalidateQueries), and exposes the QueryClient to trigger that refetch.
+ */
+function renderPanelWithClient(mutableDetail: TaskDetail) {
+  const fetchMock = vi.fn(async (input: RequestInfo | URL, _init?: RequestInit) => {
+    const url = String(input);
+    if (url === "/api/tasks") {
+      return new Response(JSON.stringify([mutableDetail.task]), { status: 200, headers: { "Content-Type": "application/json" } });
+    }
+    return new Response(JSON.stringify(mutableDetail), { status: 200, headers: { "Content-Type": "application/json" } });
+  });
+  vi.stubGlobal("fetch", fetchMock);
+  const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  render(
+    <QueryClientProvider client={qc}>
+      <MemoryRouter initialEntries={["/task/TASK-1"]}>
+        <Routes>
+          <Route path="/task/:identifier" element={<TaskDetailPanel />} />
+        </Routes>
+      </MemoryRouter>
+    </QueryClientProvider>,
+  );
+  return { fetchMock, qc };
+}
+
 describe("TaskDetailPanel", () => {
   it("shows title, description, labels, comments, and history", async () => {
     renderPanel();
@@ -71,5 +98,32 @@ describe("TaskDetailPanel", () => {
     const call = fetchMock.mock.calls.find(([, init]) => (init as RequestInit | undefined)?.method === "PATCH");
     expect(call).toBeTruthy();
     expect((call![1] as RequestInit).body).toContain('"priority":1');
+  });
+
+  it("keeps in-progress typing when a background refetch changes the task", async () => {
+    const mutableDetail: TaskDetail = structuredClone(detail);
+    const { qc } = renderPanelWithClient(mutableDetail);
+    await screen.findByDisplayValue("Fix login");
+
+    const titleInput = screen.getByLabelText("Title") as HTMLInputElement;
+    await userEvent.type(titleInput, " EXTRA");
+    expect(titleInput.value).toBe("Fix login EXTRA");
+
+    // Simulate a concurrent update (another tab/agent) landing on the server,
+    // followed by the SSE hook's blanket invalidateQueries() triggering a refetch.
+    mutableDetail.task = {
+      ...mutableDetail.task,
+      title: "Server-renamed title",
+      description: "Server-updated description",
+    };
+
+    await qc.refetchQueries({ queryKey: ["task", "TASK-1"] });
+
+    // Non-dirty field: untouched fields should pick up the new server value.
+    await waitFor(() =>
+      expect(screen.getByLabelText("Description")).toHaveProperty("value", "Server-updated description"),
+    );
+    // Dirty field: the user's in-progress typing must survive the refetch.
+    expect(titleInput.value).toBe("Fix login EXTRA");
   });
 });

@@ -1,4 +1,4 @@
-import { useState, type FormEvent } from "react";
+import { useEffect, useState, type FormEvent } from "react";
 import { useNavigate, useParams } from "react-router";
 import {
   useAddComment, useBlockerMutation, useEditTask, useLabelMutation, useMoveTask, useTask, useTasks,
@@ -6,6 +6,16 @@ import {
 import { LabelChip } from "../chips";
 import { useToast } from "../toast";
 import { PRIORITY_NAMES } from "../types";
+
+/** Controlled input state that follows the server value until the user edits it. */
+function useSyncedField(serverValue: string) {
+  const [value, setValue] = useState(serverValue);
+  const [dirty, setDirty] = useState(false);
+  useEffect(() => {
+    if (!dirty) setValue(serverValue);
+  }, [serverValue, dirty]);
+  return { value, setValue: (v: string) => { setValue(v); setDirty(true); }, reset: () => setDirty(false) };
+}
 
 export function TaskDetailPanel() {
   const { identifier = "" } = useParams();
@@ -21,6 +31,8 @@ export function TaskDetailPanel() {
   const [newLabel, setNewLabel] = useState("");
   const [newBlocker, setNewBlocker] = useState("");
   const [newComment, setNewComment] = useState("");
+  const titleField = useSyncedField(data?.task.title ?? "");
+  const descriptionField = useSyncedField(data?.task.description ?? "");
 
   const close = () => void navigate("/");
   const onError = (err: Error) => toast(err.message);
@@ -36,16 +48,18 @@ export function TaskDetailPanel() {
   }
   const { task, comments, history } = data;
 
-  function saveTitle(value: string) {
-    if (value.trim() && value !== task.title) {
-      edit.mutate({ title: value.trim() }, { onError });
+  function saveTitle() {
+    const trimmed = titleField.value.trim();
+    if (trimmed && trimmed !== task.title) {
+      edit.mutate({ title: trimmed }, { onError });
     }
+    titleField.reset();
   }
 
   function saveDescription(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
-    const value = new FormData(e.currentTarget).get("description");
-    edit.mutate({ description: String(value ?? "") }, { onError });
+    edit.mutate({ description: descriptionField.value }, { onError });
+    descriptionField.reset();
   }
 
   function addComment(e: FormEvent) {
@@ -75,9 +89,9 @@ export function TaskDetailPanel() {
         <input
           type="text"
           aria-label="Title"
-          key={task.title}
-          defaultValue={task.title}
-          onBlur={(e) => saveTitle(e.target.value)}
+          value={titleField.value}
+          onChange={(e) => titleField.setValue(e.target.value)}
+          onBlur={saveTitle}
         />
 
         <form onSubmit={saveDescription}>
@@ -85,8 +99,8 @@ export function TaskDetailPanel() {
             name="description"
             aria-label="Description"
             rows={5}
-            key={task.description ?? ""}
-            defaultValue={task.description ?? ""}
+            value={descriptionField.value}
+            onChange={(e) => descriptionField.setValue(e.target.value)}
           />
           <button className="btn" type="submit">Save description</button>
         </form>

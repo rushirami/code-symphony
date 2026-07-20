@@ -109,4 +109,21 @@ describe("TaskStore create/get/list", () => {
     expect(() => store.createTask({ title: "x", priority: 7, actor: "a" })).toThrow(/Priority must be 0-4/);
     store.close();
   });
+
+  it("keeps createdAt === updatedAt on a freshly created task and logs a created event", async () => {
+    const dir = await useTmpDir();
+    const dbPath = path.join(dir, "tasks.db");
+    const store = createTaskStore(dbPath);
+    const t = store.createTask({ title: "Fix login", actor: "rushi" });
+    expect(t.identifier).toBe(`TASK-${t.id}`);
+    expect(t.updatedAt).toBe(t.createdAt);
+    store.close();
+
+    const raw = new Database(dbPath, { readonly: true });
+    const events = raw
+      .prepare("SELECT kind FROM task_events WHERE task_id = ?")
+      .all(t.id) as Array<{ kind: string }>;
+    expect(events.map((e) => e.kind)).toEqual(["created"]);
+    raw.close();
+  });
 });

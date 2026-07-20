@@ -117,7 +117,8 @@ export function createTaskStore(
       .all(row.id) as Array<{ label: string }>).map((r) => r.label);
     const blockedBy = db.prepare(
       `SELECT t.id, t.identifier, t.state FROM task_relations r
-       JOIN tasks t ON t.id = r.blocker_id WHERE r.blocked_id = ?`,
+       JOIN tasks t ON t.id = r.blocker_id WHERE r.blocked_id = ?
+       ORDER BY t.id`,
     ).all(row.id) as BlockerInfo[];
     return {
       id: row.id,
@@ -141,13 +142,15 @@ export function createTaskStore(
       throw new Error(`Priority must be 0-4 (0 none, 1 urgent, 2 high, 3 medium, 4 low), got ${priority}`);
     }
     const ts = now();
+    const nextId = db.prepare(
+      "SELECT COALESCE((SELECT seq FROM sqlite_sequence WHERE name = 'tasks'), 0) + 1",
+    ).pluck().get() as number;
+    const identifier = `${prefix}-${nextId}`;
     const info = db.prepare(
       `INSERT INTO tasks (identifier, title, description, state, priority, branch_name, created_at, updated_at)
-       VALUES ('', ?, ?, ?, ?, ?, ?, ?)`,
-    ).run(input.title, input.description ?? null, state, priority, input.branchName ?? null, ts, ts);
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+    ).run(identifier, input.title, input.description ?? null, state, priority, input.branchName ?? null, ts, ts);
     const id = Number(info.lastInsertRowid);
-    const identifier = `${prefix}-${id}`;
-    db.prepare("UPDATE tasks SET identifier = ? WHERE id = ?").run(identifier, id);
     for (const label of input.labels ?? []) {
       db.prepare("INSERT OR IGNORE INTO task_labels (task_id, label) VALUES (?, ?)")
         .run(id, label.toLowerCase());

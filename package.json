@@ -5,6 +5,9 @@
   "engines": {
     "node": ">=20.0.0"
   },
+  "bin": {
+    "symphony": "dist/cli/index.js"
+  },
   "scripts": {
     "start": "tsx src/index.ts",
     "dev": "tsx watch src/index.ts",

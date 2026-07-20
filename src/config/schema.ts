@@ -1,19 +1,11 @@
 import { z } from "zod";
 
-function envString() {
-  return z.preprocess((val) => {
-    if (typeof val === "string" && val.startsWith("$")) {
-      const varName = val.startsWith("${")
-        ? val.slice(2, -1)
-        : val.slice(1);
-      const resolved = process.env[varName];
-      if (resolved === undefined) {
-        return val; // let Zod validation handle missing env vars
-      }
-      return resolved;
-    }
-    return val;
-  }, z.string());
+function envResolve(val: unknown): unknown {
+  if (typeof val === "string" && val.startsWith("$")) {
+    const varName = val.startsWith("${") ? val.slice(2, -1) : val.slice(1);
+    return process.env[varName] ?? val;
+  }
+  return val;
 }
 
 export const HooksConfigSchema = z.object({
@@ -25,10 +17,9 @@ export const HooksConfigSchema = z.object({
 });
 
 export const TrackerConfigSchema = z.object({
-  kind: z.literal("linear").default("linear"),
-  endpoint: z.string().default("https://api.linear.app/graphql"),
-  api_key: envString(),
-  project_slug: z.string(),
+  kind: z.literal("sqlite").default("sqlite"),
+  db_path: z.preprocess(envResolve, z.string().default("./tasks.db")),
+  identifier_prefix: z.string().default("TASK"),
   active_states: z.array(z.string()).default(["Todo", "In Progress"]),
   terminal_states: z.array(z.string()).default(["Done", "Cancelled"]),
 });
@@ -56,7 +47,7 @@ export const WorkspaceConfigSchema = z.object({
   hooks: HooksConfigSchema.default({}),
 });
 
-export const CodexConfigSchema = z.object({
+export const RunnerConfigSchema = z.object({
   command: z.string().default("claude"),
 });
 
@@ -67,11 +58,11 @@ export const ServerConfigSchema = z.object({
 });
 
 export const WorkflowFrontmatterSchema = z.object({
-  tracker: TrackerConfigSchema,
+  tracker: TrackerConfigSchema.default({}),
   polling: PollingConfigSchema.default({}),
   agent: AgentConfigSchema.default({}),
   workspace: WorkspaceConfigSchema.default({}),
-  codex: CodexConfigSchema.default({}),
+  runner: RunnerConfigSchema.default({}),
   server: ServerConfigSchema.default({}),
 });
 

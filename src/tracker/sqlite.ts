@@ -1,22 +1,15 @@
 import path from "node:path";
 import type { Logger } from "pino";
-import type { TrackerClient, TrackerIssue } from "../types.js";
+import type { TrackerClient, TrackerConfig, TrackerIssue } from "../types.js";
 import { createTaskStore, type TaskRecord, type TaskStore } from "../db/store.js";
 
-export interface SqliteTrackerOptions {
-  dbPath: string;
-  identifierPrefix: string;
-  activeStates: string[];
-  terminalStates: string[];
-}
-
 export function createSqliteTracker(
-  opts: SqliteTrackerOptions,
+  config: TrackerConfig,
   log: Logger,
 ): TrackerClient & { close(): void } {
-  const store: TaskStore = createTaskStore(opts.dbPath, { identifierPrefix: opts.identifierPrefix });
-  const dbName = path.basename(opts.dbPath);
-  log.info({ dbPath: opts.dbPath }, "SQLite tracker opened");
+  const store: TaskStore = createTaskStore(config.dbPath, { identifierPrefix: config.identifierPrefix });
+  const dbName = path.basename(config.dbPath);
+  log.info({ dbPath: config.dbPath }, "SQLite tracker opened");
 
   function toIssue(t: TaskRecord): TrackerIssue {
     return {
@@ -36,7 +29,7 @@ export function createSqliteTracker(
   }
 
   async function* fetchCandidates(): AsyncGenerator<TrackerIssue[], void, unknown> {
-    const tasks = store.listTasks({ states: opts.activeStates });
+    const tasks = store.listTasks({ states: config.activeStates });
     if (tasks.length > 0) yield tasks.map(toIssue);
   }
 

@@ -40,10 +40,9 @@ export function makeIssue(overrides: Partial<TrackerIssue> = {}): TrackerIssue {
 export function makeConfig(overrides: Partial<SymphonyConfig> = {}): SymphonyConfig {
   return {
     tracker: {
-      kind: "linear",
-      endpoint: "https://api.linear.app/graphql",
-      apiKey: "test-api-key",
-      projectSlug: "test-project",
+      kind: "sqlite",
+      dbPath: "/tmp/symphony-test-unused.db",
+      identifierPrefix: "TASK",
       activeStates: ["Todo", "In Progress"],
       terminalStates: ["Done", "Cancelled"],
       ...overrides.tracker,
@@ -54,6 +53,7 @@ export function makeConfig(overrides: Partial<SymphonyConfig> = {}): SymphonyCon
     },
     agent: {
       command: "claude",
+      env: {},
       maxConcurrentAgents: 2,
       maxConcurrentAgentsByState: {},
       maxTurns: 5,

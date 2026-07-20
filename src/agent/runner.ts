@@ -101,7 +101,7 @@ export function createAgentRunner(config: AgentConfig, log: Logger): AgentRunner
     const child = spawn(config.command, args, {
       cwd: opts.workspacePath,
       stdio: ["ignore", "pipe", "pipe"],
-      env: { ...process.env },
+      env: { ...process.env, ...config.env },
     });
 
     activeRuns.set(opts.identifier, child);

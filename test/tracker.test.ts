@@ -12,7 +12,7 @@ async function setup() {
   const dbPath = path.join(dir, "tasks.db");
   const store = createTaskStore(dbPath);
   const tracker = createSqliteTracker(
-    { dbPath, identifierPrefix: "TASK", activeStates: ["Todo", "In Progress"], terminalStates: ["Done", "Cancelled"] },
+    { kind: "sqlite" as const, dbPath, identifierPrefix: "TASK", activeStates: ["Todo", "In Progress"], terminalStates: ["Done", "Cancelled"] },
     log,
   );
   return { store, tracker, dbPath };

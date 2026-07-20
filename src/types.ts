@@ -1,10 +1,9 @@
 // ─── Config ───
 
 export interface TrackerConfig {
-  kind: "linear";
-  endpoint: string;
-  apiKey: string;
-  projectSlug: string;
+  kind: "sqlite";
+  dbPath: string;
+  identifierPrefix: string;
   activeStates: string[];
   terminalStates: string[];
 }
@@ -15,6 +14,7 @@ export interface PollingConfig {
 
 export interface AgentConfig {
   command: string;
+  env: Record<string, string>;
   maxConcurrentAgents: number;
   maxConcurrentAgentsByState: Record<string, number>;
   maxTurns: number;
@@ -55,7 +55,7 @@ export interface SymphonyConfig {
   server: ServerConfig;
 }
 
-// ─── Tracker (Linear) ───
+// ─── Tracker ───
 
 export interface BlockerRef {
   id: string;

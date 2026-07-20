@@ -342,7 +342,7 @@ export function createBoardServer(opts: BoardServerOptions): BoardServer {
       });
       return new Promise<void>((resolve, reject) => {
         server.on("error", reject);
-        server.listen(opts.port, () => {
+        server.listen(opts.port, "127.0.0.1", () => {
           const addr = server.address();
           actualPort = typeof addr === "object" && addr ? addr.port : opts.port;
           log.info({ port: actualPort, dbPath }, "Board server listening");

@@ -6,16 +6,24 @@ import { str, type Flags } from "./context.js";
 
 export async function runUp(workflowArg: string | undefined, flags: Flags): Promise<void> {
   const workflowPath = workflowArg ?? process.env.WORKFLOW_PATH ?? "./WORKFLOW.md";
-  const service = await startService(workflowPath);
-
-  const log = createChildLogger({ module: "board" });
   const actor = str(flags, "actor") ?? process.env.USER ?? "board";
   const portFlag = str(flags, "board-port");
   const port = portFlag !== undefined ? Number(portFlag) : 4400;
+  if (!Number.isInteger(port) || port < 0 || port > 65535) {
+    throw new Error(`Invalid --board-port "${portFlag}"`);
+  }
+
+  // Resolve/build the web UI dist before starting the orchestrator: the
+  // build's spawnSync (npm install/build) can block the event loop for
+  // minutes, which would otherwise stall the live orchestrator's agent
+  // pipes and SIGINT handling.
+  const log = createChildLogger({ module: "board" });
+  const webDist = ensureWebDist(log);
+
+  const service = await startService(workflowPath);
 
   let board: BoardServer | undefined;
   try {
-    const webDist = ensureWebDist(log);
     board = createBoardServer({
       port,
       dbPath: service.config.tracker.dbPath,

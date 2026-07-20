@@ -111,6 +111,16 @@ describe("board server: read + create", () => {
     const res = await fetch(`${url}/api/unknown`);
     expect(res.status).toBe(404);
   });
+
+  // Fix: the server binds explicitly to 127.0.0.1 (not all interfaces), so it
+  // must still be reachable over loopback. Non-loopback unreachability can't
+  // be asserted portably in CI (no guaranteed non-loopback interface), so
+  // this loopback-reachability check is the practical pin for that binding.
+  it("is reachable via 127.0.0.1 (loopback bind)", async () => {
+    const res = await fetch(`http://127.0.0.1:${server.port}/api/tasks`);
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual([]);
+  });
 });
 
 describe("board server: mutations", () => {

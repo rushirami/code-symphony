@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import path from "node:path";
 import pino from "pino";
-import { createBoardServer, type BoardServer } from "../src/board/server.js";
+import { createBoardServer, toHttpError, type BoardServer } from "../src/board/server.js";
 import { useTmpDir } from "./helpers.js";
 
 const log = pino({ level: "silent" });
@@ -107,5 +107,21 @@ describe("board server: read + create", () => {
   it("GET /api/unknown returns 404 JSON", async () => {
     const res = await fetch(`${url}/api/unknown`);
     expect(res.status).toBe(404);
+  });
+});
+
+describe("toHttpError", () => {
+  it("maps not-found store errors to 404", () => {
+    expect(toHttpError(new Error('No task with identifier "TASK-9"')).status).toBe(404);
+  });
+  it("maps known validation messages to 400", () => {
+    expect(toHttpError(new Error('Unknown state "Nope". Valid states: ...')).status).toBe(400);
+    expect(toHttpError(new Error("Priority must be 0-4 (0 none, 1 urgent, 2 high, 3 medium, 4 low), got 9")).status).toBe(400);
+  });
+  it("maps anything else to 500 without leaking the message", () => {
+    const mapped = toHttpError(new Error("SQLITE_CORRUPT: database disk image is malformed"));
+    expect(mapped.status).toBe(500);
+    expect(mapped.message).toBe("Internal error");
+    expect(toHttpError("string throw").status).toBe(500);
   });
 });

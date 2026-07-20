@@ -62,13 +62,16 @@ function sendJson(res: ServerResponse, status: number, body: unknown): void {
   res.end(JSON.stringify(body));
 }
 
-// The store throws plain Errors; "No task with identifier" is its not-found
-// message, everything else it throws is a validation failure.
-function toHttpError(err: unknown): HttpError {
+// Known store validation messages map to client errors; anything else is an
+// unexpected failure and must surface as a 500 (logged by the caller).
+const NOT_FOUND_PREFIX = "No task with identifier";
+const VALIDATION_PREFIXES = ["Unknown state", "Priority must be"];
+
+export function toHttpError(err: unknown): HttpError {
   if (err instanceof HttpError) return err;
   if (err instanceof Error) {
-    if (err.message.startsWith("No task with identifier")) return new HttpError(404, err.message);
-    return new HttpError(400, err.message);
+    if (err.message.startsWith(NOT_FOUND_PREFIX)) return new HttpError(404, err.message);
+    if (VALIDATION_PREFIXES.some((p) => err.message.startsWith(p))) return new HttpError(400, err.message);
   }
   return new HttpError(500, "Internal error");
 }

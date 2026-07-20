@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import path from "node:path";
 import { mkdir, writeFile } from "node:fs/promises";
+import { connect } from "node:net";
 import pino from "pino";
 import { createBoardServer, toHttpError, type BoardServer } from "../src/board/server.js";
 import { createTaskStore } from "../src/db/store.js";
@@ -258,6 +259,29 @@ describe("board server: SSE", () => {
   });
 });
 
+// fetch() (and the underlying undici client) normalizes ".." segments in a
+// URL before the request ever leaves the process, so driving a traversal
+// attempt through fetch() never actually puts a literal ".." on the wire —
+// it can't exercise the server's containment check. To genuinely test that
+// check, write a raw HTTP request line over a socket, bypassing any
+// client-side URL normalization.
+function rawGet(port: number, rawPath: string): Promise<{ status: number }> {
+  return new Promise((resolve, reject) => {
+    const socket = connect(port, "localhost", () => {
+      socket.write(`GET ${rawPath} HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n`);
+    });
+    let data = "";
+    socket.on("data", (chunk: Buffer) => {
+      data += chunk.toString("utf-8");
+    });
+    socket.on("end", () => {
+      const match = /^HTTP\/1\.\d (\d+)/.exec(data);
+      resolve({ status: match ? Number(match[1]) : 0 });
+    });
+    socket.on("error", reject);
+  });
+}
+
 describe("board server: static files", () => {
   it("serves index.html, assets, and SPA fallback", async () => {
     const dir = await useTmpDir();
@@ -288,8 +312,19 @@ describe("board server: static files", () => {
     await writeFile(path.join(webDist, "index.html"), "ok");
     await writeFile(path.join(dir, "secret.txt"), "secret");
     await startBoard({ webDist });
+
+    // fetch() normalizes "%2e%2e" client-side before the request hits the
+    // wire, so this only exercises the extension-heuristic 404 path, not
+    // the containment check itself. Kept for coverage of the encoded case.
     const res = await fetch(`${url}/%2e%2e/secret.txt`);
     expect(res.status).toBe(404);
+
+    // A raw request line with a literal ".." can't be normalized away by a
+    // client, so this is the case that actually exercises the
+    // `filePath.startsWith(root + path.sep)` containment guard in
+    // serveStatic. Weakening/removing that guard makes this fail.
+    const raw = await rawGet(server.port, "/../secret.txt");
+    expect(raw.status).toBe(404);
   });
 
   it("explains when the UI is not built", async () => {

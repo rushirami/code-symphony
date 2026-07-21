@@ -61,8 +61,7 @@
 .card-id { color: #57606a; font-size: 11px; margin-right: 6px; }
 .card-chips { display: flex; flex-wrap: wrap; gap: 4px; }
 /* .card-id/.card-chips kept: still used by TaskDetailPanel.tsx until Task 6. */
-/* .btn/.btn.primary kept: still used by NewTaskModal.tsx and TaskDetailPanel.tsx
-   until Tasks 5-6 convert their consumers. */
+/* .btn/.btn.primary kept: still used by TaskDetailPanel.tsx until Task 6 converts it. */
 .btn {
   border: 1px solid #d0d3d9;
   background: #fff;
@@ -74,7 +73,7 @@
 .btn.primary { background: #2da44e; border-color: #2da44e; color: #fff; }
 .status { padding: 24px; text-align: center; color: #57606a; }
 .status.error { color: #cf222e; }
-.panel-backdrop, .modal-backdrop {
+.panel-backdrop {
   position: fixed;
   inset: 0;
   background: rgba(0, 0, 0, 0.35);
@@ -92,8 +91,7 @@
   overflow-y: auto;
   box-shadow: -4px 0 16px rgba(0, 0, 0, 0.15);
 }
-.panel input[type="text"], .panel textarea, .panel select,
-.modal input[type="text"], .modal textarea, .modal select {
+.panel input[type="text"], .panel textarea, .panel select {
   width: 100%;
   font: inherit;
   padding: 6px 8px;
@@ -101,18 +99,7 @@
   border-radius: 6px;
   margin: 4px 0 12px;
 }
-.panel .row, .modal .row { display: flex; gap: 8px; align-items: center; }
-.modal {
-  position: fixed;
-  top: 10vh;
-  left: 50%;
-  transform: translateX(-50%);
-  width: min(520px, 92vw);
-  background: #fff;
-  border-radius: 8px;
-  padding: 20px;
-  z-index: 11;
-}
+.panel .row { display: flex; gap: 8px; align-items: center; }
 .comment { border-top: 1px solid #e2e4e9; padding: 8px 0; font-size: 13px; }
 .comment .meta { color: #57606a; font-size: 11px; }
 .history { font-size: 12px; color: #57606a; }

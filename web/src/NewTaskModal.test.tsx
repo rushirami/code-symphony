@@ -1,10 +1,13 @@
 import { describe, it, expect, vi, afterEach } from "vitest";
 import { render, screen } from "@testing-library/react";
-import userEvent from "@testing-library/user-event";
+import userEvent, { PointerEventsCheckLevel } from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { NewTaskModal } from "./NewTaskModal";
 
 afterEach(() => vi.unstubAllGlobals());
+
+// Radix Dialog toggles body pointer-events, which jsdom reports unreliably.
+const user = () => userEvent.setup({ pointerEventsCheck: PointerEventsCheckLevel.Never });
 
 describe("NewTaskModal", () => {
   it("creates a task and closes on success", async () => {
@@ -19,9 +22,10 @@ describe("NewTaskModal", () => {
         <NewTaskModal onClose={onClose} />
       </QueryClientProvider>,
     );
-    await userEvent.type(screen.getByLabelText("Title"), "New thing");
-    await userEvent.type(screen.getByLabelText("Labels"), "bug, infra");
-    await userEvent.click(screen.getByRole("button", { name: "Create" }));
+    const u = user();
+    await u.type(screen.getByLabelText("Title"), "New thing");
+    await u.type(screen.getByLabelText("Labels"), "bug, infra");
+    await u.click(screen.getByRole("button", { name: "Create" }));
     expect(fetchMock).toHaveBeenCalledWith("/api/tasks", expect.objectContaining({ method: "POST" }));
     const body = JSON.parse((fetchMock.mock.calls[0][1] as RequestInit).body as string);
     expect(body).toMatchObject({ title: "New thing", state: "Backlog", priority: 0, labels: ["bug", "infra"] });
@@ -37,7 +41,7 @@ describe("NewTaskModal", () => {
         <NewTaskModal onClose={() => {}} />
       </QueryClientProvider>,
     );
-    await userEvent.click(screen.getByRole("button", { name: "Create" }));
+    await user().click(screen.getByRole("button", { name: "Create" }));
     expect(fetchMock).not.toHaveBeenCalled();
   });
 });

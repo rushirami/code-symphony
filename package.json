@@ -12,7 +12,9 @@
     "start": "tsx src/index.ts",
     "dev": "tsx watch src/index.ts",
     "build": "tsc -p tsconfig.build.json",
-    "typecheck": "tsc --noEmit",
+    "build:web": "npm --prefix web run build",
+    "dev:web": "npm --prefix web run dev",
+    "typecheck": "tsc --noEmit && npm --prefix web run typecheck",
     "test": "vitest run",
     "test:watch": "vitest"
   },

@@ -1,8 +1,9 @@
 #!/usr/bin/env node
-import path from "node:path";
-import { existsSync, readFileSync } from "node:fs";
-import matter from "gray-matter";
+import { readFileSync } from "node:fs";
 import { createTaskStore, STATES, type TaskRecord, type TaskStore } from "../db/store.js";
+import { resolveDbContext, str, type Flags } from "./context.js";
+import { runBoard } from "./board.js";
+import { runUp } from "./up.js";
 
 const PRIORITY_NAMES = ["none", "urgent", "high", "medium", "low"] as const;
 const BOOLEAN_FLAGS = new Set(["all", "help"]);
@@ -23,11 +24,14 @@ const COMMAND_FLAGS: Record<string, string[]> = {
   block: ["by"],
   unblock: ["by"],
   history: [],
+  board: ["port", "actor"],
+  up: ["board-port", "actor"],
 };
 // Maximum positional arguments each command consumes; extras are rejected.
 const MAX_POSITIONALS: Record<string, number> = {
   add: 1, list: 0, show: 1, state: 2, done: 1, cancel: 1,
   comment: 2, edit: 1, block: 1, unblock: 1, history: 1,
+  board: 0, up: 1,
 };
 
 interface ParsedArgs {
@@ -87,45 +91,6 @@ function validateArgs(command: string, parsed: ParsedArgs): void {
   if (parsed.positionals.length > max) {
     throw new Error(`Unexpected argument "${parsed.positionals[max]}" for command "${command}". Run: symphony help`);
   }
-}
-
-function str(flags: ParsedArgs["flags"], name: string): string | undefined {
-  const v = flags[name];
-  return typeof v === "string" ? v : undefined;
-}
-
-function findWorkflow(startDir: string): string | null {
-  let dir = startDir;
-  for (;;) {
-    const candidate = path.join(dir, "WORKFLOW.md");
-    if (existsSync(candidate)) return candidate;
-    const parent = path.dirname(dir);
-    if (parent === dir) return null;
-    dir = parent;
-  }
-}
-
-function resolveDbContext(flags: ParsedArgs["flags"]): { dbPath: string; prefix: string } {
-  let workflowDb: string | null = null;
-  let prefix = "TASK";
-  const workflowPath = findWorkflow(process.cwd());
-  if (workflowPath) {
-    try {
-      const fm = matter(readFileSync(workflowPath, "utf-8")).data as {
-        tracker?: { db_path?: string; identifier_prefix?: string };
-      };
-      if (fm.tracker?.db_path) workflowDb = path.resolve(path.dirname(workflowPath), fm.tracker.db_path);
-      if (fm.tracker?.identifier_prefix) prefix = fm.tracker.identifier_prefix;
-    } catch {
-      // Unparseable WORKFLOW.md: fall back to defaults
-    }
-  }
-  const flagDb = str(flags, "db");
-  const envDb = process.env.SYMPHONY_DB;
-  const dbPath = flagDb ? path.resolve(flagDb)
-    : envDb ? path.resolve(envDb)
-    : workflowDb ?? path.resolve("tasks.db");
-  return { dbPath, prefix };
 }
 
 function actorFrom(flags: ParsedArgs["flags"]): string {
@@ -194,12 +159,14 @@ Usage:
   symphony block <TASK-N> --by <TASK-M>
   symphony unblock <TASK-N> --by <TASK-M>
   symphony history <TASK-N>
+  symphony board [--port 4400] [--db <path>] [--actor <name>]   # web Kanban UI
+  symphony up [workflow.md] [--board-port 4400] [--actor <name>]  # orchestrator + board in one process
 
 Common flags: --db <path>, --author <name>
 States: ${STATES.join(", ")}   Priorities: 0 none, 1 urgent, 2 high, 3 medium, 4 low
 DB resolution: --db, then $SYMPHONY_DB, then tracker.db_path in nearest WORKFLOW.md, then ./tasks.db`;
 
-function main(): void {
+async function main(): Promise<void> {
   const [command, ...rest] = process.argv.slice(2);
   const parsed = parseArgs(rest);
   const { positionals, flags } = parsed;
@@ -210,6 +177,16 @@ function main(): void {
   }
 
   validateArgs(command, parsed);
+
+  if (command === "board") {
+    await runBoard(flags);
+    return;
+  }
+
+  if (command === "up") {
+    await runUp(positionals[0], flags);
+    return;
+  }
 
   const ctx = resolveDbContext(flags);
   const store = createTaskStore(ctx.dbPath, { identifierPrefix: ctx.prefix });
@@ -296,9 +273,7 @@ function main(): void {
   }
 }
 
-try {
-  main();
-} catch (err) {
+main().catch((err) => {
   console.error(err instanceof Error ? err.message : String(err));
   process.exit(1);
-}
+});

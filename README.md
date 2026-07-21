@@ -37,6 +37,27 @@ Symphony is a **scheduler/runner** — it reads from the task database but never
                            └──────────┘
 ```
 
+## Web UI (Kanban board)
+
+A React Kanban board over `tasks.db` — drag cards between states, create/edit
+tasks, manage labels/blockers, comment, and watch agents move tasks live (SSE).
+
+```bash
+symphony board                 # board only (default http://localhost:4400)
+symphony up                    # orchestrator + board in one process
+symphony up WORKFLOW.md --board-port 4400 --actor rushi
+```
+
+- The board resolves `tasks.db` the same way the CLI does (`--db`,
+  `$SYMPHONY_DB`, nearest `WORKFLOW.md`, then `./tasks.db`); `symphony up`
+  always uses the workflow's tracker db.
+- On first run the frontend is built automatically (`web/dist`); set
+  `SYMPHONY_NO_WEB_BUILD=1` to skip.
+- Changes made in the UI are written through the same task store as the CLI
+  and attributed to `--actor` (default: your OS username) in task history.
+- Frontend dev loop: `npm run dev:web` (Vite on :5173, proxying `/api` to
+  :4400) alongside `symphony board`.
+
 ## How it works
 
 1. **Poll** — Fetches tasks from `tasks.db` in configured active states (e.g. "Todo", "In Progress")

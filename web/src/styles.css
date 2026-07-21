@@ -42,6 +42,15 @@
   }
 }
 
+/* Per-column accents: neobrutalism components fill from --main, so
+   scoping it here re-colors every badge/header/hover inside a column. */
+.accent-backlog { --main: #88aaee; }
+.accent-todo { --main: #ffdc58; }
+.accent-inprogress { --main: #fd9745; }
+.accent-inreview { --main: #a388ee; }
+.accent-done { --main: #7fbc8c; }
+.accent-cancelled { --main: #d4d4d8; }
+
 /* ------------------------------------------------------------------ */
 /* LEGACY styles for not-yet-converted components.                     */
 /* Each task below deletes the rules it obsoletes; Task 7 removes any  */

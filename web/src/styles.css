@@ -50,11 +50,3 @@
 .accent-inreview { --main: #a388ee; }
 .accent-done { --main: #7fbc8c; }
 .accent-cancelled { --main: #d4d4d8; }
-
-/* ------------------------------------------------------------------ */
-/* LEGACY styles for not-yet-converted components.                     */
-/* Each task below deletes the rules it obsoletes; Task 7 removes any  */
-/* remainder and this banner.                                          */
-/* ------------------------------------------------------------------ */
-
-* { box-sizing: border-box; }

@@ -73,7 +73,7 @@ describe("BoardPage", () => {
   it("does not navigate when a click follows significant pointer travel (drag tail)", async () => {
     renderBoard();
     const inProgress = await screen.findByRole("region", { name: "In Progress" });
-    const card = within(inProgress).getByText("Fix login").closest(".card") as HTMLElement;
+    const card = within(inProgress).getByText("Fix login").closest("[data-card]") as HTMLElement;
     firePointerDown(card, { clientX: 0, clientY: 0 });
     fireEvent.click(card, { clientX: 40, clientY: 0 });
     expect(screen.queryByText("DETAIL")).toBeNull();
@@ -83,7 +83,7 @@ describe("BoardPage", () => {
   it("navigates to the task detail when pointerdown and click share the same position", async () => {
     renderBoard();
     const inProgress = await screen.findByRole("region", { name: "In Progress" });
-    const card = within(inProgress).getByText("Fix login").closest(".card") as HTMLElement;
+    const card = within(inProgress).getByText("Fix login").closest("[data-card]") as HTMLElement;
     firePointerDown(card, { clientX: 10, clientY: 10 });
     fireEvent.click(card, { clientX: 10, clientY: 10 });
     expect(await screen.findByText("DETAIL")).toBeTruthy();

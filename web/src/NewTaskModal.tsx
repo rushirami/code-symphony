@@ -1,4 +1,14 @@
 import { useState, type FormEvent } from "react";
+import { Button } from "@/components/ui/button";
+import {
+  Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle,
+} from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import {
+  Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
+} from "@/components/ui/select";
+import { Textarea } from "@/components/ui/textarea";
 import { useCreateTask } from "./api/hooks";
 import { useToast } from "./toast";
 import { PRIORITY_NAMES, STATES } from "./types";
@@ -28,39 +38,59 @@ export function NewTaskModal({ onClose }: { onClose: () => void }) {
   }
 
   return (
-    <>
-      <div className="modal-backdrop" onClick={onClose} />
-      <form className="modal" onSubmit={submit}>
-        <h2>New task</h2>
-        <label htmlFor="nt-title">Title</label>
-        <input id="nt-title" type="text" value={title} onChange={(e) => setTitle(e.target.value)} />
-        <label htmlFor="nt-desc">Description</label>
-        <textarea id="nt-desc" rows={4} value={description} onChange={(e) => setDescription(e.target.value)} />
-        <div className="row">
-          <div style={{ flex: 1 }}>
-            <label htmlFor="nt-priority">Priority</label>
-            <select id="nt-priority" value={priority} onChange={(e) => setPriority(Number(e.target.value))}>
-              {PRIORITY_NAMES.map((name, i) => (
-                <option key={name} value={i}>{name}</option>
-              ))}
-            </select>
+    <Dialog open onOpenChange={(open) => { if (!open) onClose(); }}>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>New task</DialogTitle>
+          <DialogDescription className="sr-only">Create a new task</DialogDescription>
+        </DialogHeader>
+        <form onSubmit={submit} className="flex flex-col gap-3">
+          <div className="flex flex-col gap-1.5">
+            <Label htmlFor="nt-title">Title</Label>
+            <Input id="nt-title" value={title} onChange={(e) => setTitle(e.target.value)} />
           </div>
-          <div style={{ flex: 1 }}>
-            <label htmlFor="nt-state">State</label>
-            <select id="nt-state" value={state} onChange={(e) => setState(e.target.value)}>
-              {STATES.filter((s) => s !== "Cancelled").map((s) => (
-                <option key={s} value={s}>{s}</option>
-              ))}
-            </select>
+          <div className="flex flex-col gap-1.5">
+            <Label htmlFor="nt-desc">Description</Label>
+            <Textarea id="nt-desc" rows={4} value={description} onChange={(e) => setDescription(e.target.value)} />
           </div>
-        </div>
-        <label htmlFor="nt-labels">Labels</label>
-        <input id="nt-labels" type="text" placeholder="comma,separated" value={labels} onChange={(e) => setLabels(e.target.value)} />
-        <div className="row">
-          <button className="btn primary" type="submit" disabled={create.isPending}>Create</button>
-          <button className="btn" type="button" onClick={onClose}>Close</button>
-        </div>
-      </form>
-    </>
+          <div className="flex gap-3">
+            <div className="flex flex-1 flex-col gap-1.5">
+              <Label htmlFor="nt-priority">Priority</Label>
+              <Select value={String(priority)} onValueChange={(v) => setPriority(Number(v))}>
+                <SelectTrigger id="nt-priority" className="w-full">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {PRIORITY_NAMES.map((name, i) => (
+                    <SelectItem key={name} value={String(i)}>{name}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="flex flex-1 flex-col gap-1.5">
+              <Label htmlFor="nt-state">State</Label>
+              <Select value={state} onValueChange={setState}>
+                <SelectTrigger id="nt-state" className="w-full">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {STATES.filter((s) => s !== "Cancelled").map((s) => (
+                    <SelectItem key={s} value={s}>{s}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
+          <div className="flex flex-col gap-1.5">
+            <Label htmlFor="nt-labels">Labels</Label>
+            <Input id="nt-labels" placeholder="comma,separated" value={labels} onChange={(e) => setLabels(e.target.value)} />
+          </div>
+          <div className="mt-2 flex gap-2">
+            <Button type="submit" disabled={create.isPending}>Create</Button>
+            <Button type="button" variant="neutral" onClick={onClose}>Close</Button>
+          </div>
+        </form>
+      </DialogContent>
+    </Dialog>
   );
 }

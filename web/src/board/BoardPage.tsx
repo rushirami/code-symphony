@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { DndContext, PointerSensor, useSensor, useSensors, type DragEndEvent } from "@dnd-kit/core";
 import { Outlet } from "react-router";
+import { Button } from "@/components/ui/button";
 import { useMoveTask, useTasks } from "../api/hooks";
 import { useToast } from "../toast";
 import { BOARD_STATES, STATES } from "../types";
@@ -15,12 +16,13 @@ export function BoardPage() {
   // Distance activation keeps plain clicks working for card navigation.
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 5 } }));
 
-  if (isPending) return <p className="status">Loading…</p>;
+  if (isPending) return <p className="p-6 text-center">Loading…</p>;
   if (error) {
     return (
-      <p className="status error">
-        {error.message} <button className="btn" onClick={() => void refetch()}>Retry</button>
-      </p>
+      <div className="mx-auto mt-8 flex w-fit items-center gap-3 rounded-base border-2 border-border bg-[#ff6b6b] px-6 py-4 shadow-shadow">
+        {error.message}
+        <Button variant="neutral" size="sm" onClick={() => void refetch()}>Retry</Button>
+      </div>
     );
   }
 
@@ -34,7 +36,7 @@ export function BoardPage() {
 
   return (
     <>
-      <label className="show-cancelled">
+      <label className="block px-4 pt-3 text-sm">
         <input
           type="checkbox"
           aria-label="Show cancelled"
@@ -44,7 +46,7 @@ export function BoardPage() {
         Show cancelled
       </label>
       <DndContext sensors={sensors} onDragEnd={onDragEnd}>
-        <div className="board">
+        <div className="flex min-h-[calc(100vh-64px)] items-start gap-4 overflow-x-auto p-4">
           {[...groups].map(([state, cards]) => (
             <Column key={state} state={state} tasks={cards} />
           ))}

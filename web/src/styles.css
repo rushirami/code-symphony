@@ -58,48 +58,9 @@
 /* ------------------------------------------------------------------ */
 
 * { box-sizing: border-box; }
-.column {
-  background: #ebedf1;
-  border-radius: 8px;
-  padding: 8px;
-  width: 280px;
-  flex-shrink: 0;
-}
-.column.drop-over { outline: 2px solid #2da44e; }
-.column h2 {
-  font-size: 12px;
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
-  color: #57606a;
-  margin: 4px 8px 8px;
-  display: flex;
-  justify-content: space-between;
-}
-.card {
-  background: #fff;
-  border: 1px solid #e2e4e9;
-  border-radius: 6px;
-  padding: 8px 10px;
-  margin-bottom: 8px;
-  cursor: grab;
-  font-size: 13px;
-}
-.card.dragging { opacity: 0.5; }
 .card-id { color: #57606a; font-size: 11px; margin-right: 6px; }
-.card-title { margin: 4px 0; }
 .card-chips { display: flex; flex-wrap: wrap; gap: 4px; }
-.chip {
-  font-size: 11px;
-  border-radius: 10px;
-  padding: 1px 8px;
-  background: #ddf4ff;
-  color: #0969da;
-}
-.chip.priority-1 { background: #ffebe9; color: #cf222e; }
-.chip.priority-2 { background: #fff1e5; color: #bc4c00; }
-.chip.priority-3 { background: #fff8c5; color: #7d4e00; }
-.chip.priority-4 { background: #eaeef2; color: #57606a; }
-.badge-blocked { color: #cf222e; font-size: 12px; float: right; }
+/* .card-id/.card-chips kept: still used by TaskDetailPanel.tsx until Task 6. */
 /* .btn/.btn.primary kept: still used by NewTaskModal.tsx and TaskDetailPanel.tsx
    until Tasks 5-6 convert their consumers. */
 .btn {

@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, afterEach } from "vitest";
 import { render, screen, waitFor } from "@testing-library/react";
-import userEvent from "@testing-library/user-event";
+import userEvent, { PointerEventsCheckLevel } from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { MemoryRouter, Route, Routes } from "react-router";
 import { TaskDetailPanel } from "./TaskDetailPanel";
@@ -94,7 +94,9 @@ describe("TaskDetailPanel", () => {
   it("changes priority via PATCH", async () => {
     const fetchMock = renderPanel();
     await screen.findByDisplayValue("Fix login");
-    await userEvent.selectOptions(screen.getByLabelText("Priority"), "1");
+    const u = userEvent.setup({ pointerEventsCheck: PointerEventsCheckLevel.Never });
+    await u.click(screen.getByLabelText("Priority"));
+    await u.click(await screen.findByRole("option", { name: "urgent" }));
     const call = fetchMock.mock.calls.find(([, init]) => (init as RequestInit | undefined)?.method === "PATCH");
     expect(call).toBeTruthy();
     expect((call![1] as RequestInit).body).toContain('"priority":1');

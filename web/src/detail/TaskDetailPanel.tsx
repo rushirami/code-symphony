@@ -1,11 +1,23 @@
 import { useEffect, useState, type FormEvent } from "react";
 import { useNavigate, useParams } from "react-router";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import {
+  Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
+} from "@/components/ui/select";
+import { Textarea } from "@/components/ui/textarea";
 import {
   useAddComment, useBlockerMutation, useEditTask, useLabelMutation, useMoveTask, useTask, useTasks,
 } from "../api/hooks";
 import { LabelChip } from "../chips";
 import { useToast } from "../toast";
 import { PRIORITY_NAMES } from "../types";
+
+const PANEL =
+  "fixed inset-y-0 right-0 z-20 w-[min(480px,100vw)] space-y-4 overflow-y-auto border-l-4 border-border bg-background p-4";
+const BACKDROP = "fixed inset-0 z-10 bg-overlay";
 
 /** Controlled input state that follows the server value until the user edits it. */
 function useSyncedField(serverValue: string) {
@@ -37,12 +49,12 @@ export function TaskDetailPanel() {
   const close = () => void navigate("/");
   const onError = (err: Error) => toast(err.message);
 
-  if (isPending) return <div className="panel"><p className="status">Loading…</p></div>;
+  if (isPending) return <div className={PANEL}><p className="p-6 text-center">Loading…</p></div>;
   if (error || !data) {
     return (
-      <div className="panel">
-        <p className="status error">{error?.message ?? "Not found"}</p>
-        <button className="btn" onClick={close}>Close</button>
+      <div className={PANEL}>
+        <p className="p-6 text-center text-[#cf222e]">{error?.message ?? "Not found"}</p>
+        <Button variant="neutral" onClick={close}>Close</Button>
       </div>
     );
   }
@@ -77,57 +89,66 @@ export function TaskDetailPanel() {
 
   return (
     <>
-      <div className="panel-backdrop" onClick={close} />
-      <div className="panel">
-        <div className="row">
-          <span className="card-id">{task.identifier} · {task.state}</span>
-          <span style={{ flex: 1 }} />
-          <button className="btn" onClick={cancelTask}>Cancel task</button>
-          <button className="btn" onClick={close} aria-label="Close">✕</button>
+      <div className={BACKDROP} onClick={close} />
+      <div className={PANEL}>
+        <div className="flex items-center gap-2">
+          <Badge variant="neutral">{task.identifier} · {task.state}</Badge>
+          <span className="flex-1" />
+          <Button variant="neutral" size="sm" onClick={cancelTask}>Cancel task</Button>
+          <Button variant="neutral" size="icon" onClick={close} aria-label="Close">✕</Button>
         </div>
 
-        <input
+        <Input
           type="text"
           aria-label="Title"
+          className="font-heading"
           value={titleField.value}
           onChange={(e) => titleField.setValue(e.target.value)}
           onBlur={saveTitle}
         />
 
-        <form onSubmit={saveDescription}>
-          <textarea
+        <form onSubmit={saveDescription} className="space-y-2">
+          <Textarea
             name="description"
             aria-label="Description"
             rows={5}
             value={descriptionField.value}
             onChange={(e) => descriptionField.setValue(e.target.value)}
           />
-          <button className="btn" type="submit">Save description</button>
+          <Button type="submit" variant="neutral" size="sm">Save description</Button>
         </form>
 
-        <label htmlFor="priority">Priority</label>
-        <select
-          id="priority"
-          value={task.priority}
-          onChange={(e) => edit.mutate({ priority: Number(e.target.value) }, { onError })}
-        >
-          {PRIORITY_NAMES.map((name, i) => (
-            <option key={name} value={i}>{name}</option>
-          ))}
-        </select>
+        <div className="space-y-1.5">
+          <Label htmlFor="priority">Priority</Label>
+          <Select
+            value={String(task.priority)}
+            onValueChange={(v) => edit.mutate({ priority: Number(v) }, { onError })}
+          >
+            <SelectTrigger id="priority" className="w-full">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {PRIORITY_NAMES.map((name, i) => (
+                <SelectItem key={name} value={String(i)}>{name}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
 
         <h3>Labels</h3>
-        <div className="card-chips">
+        <div className="flex flex-wrap items-center gap-1.5">
           {task.labels.map((l) => (
-            <span key={l}>
+            <span key={l} className="flex items-center gap-0.5">
               <LabelChip label={l} />
-              <button
-                className="btn"
+              <Button
+                variant="neutral"
+                size="icon"
+                className="size-6"
                 aria-label={`Remove label ${l}`}
                 onClick={() => label.mutate({ label: l, op: "remove" }, { onError })}
               >
                 ×
-              </button>
+              </Button>
             </span>
           ))}
         </div>
@@ -136,21 +157,23 @@ export function TaskDetailPanel() {
           if (!newLabel.trim()) return;
           label.mutate({ label: newLabel.trim(), op: "add" }, { onSuccess: () => setNewLabel(""), onError });
         }}>
-          <input type="text" placeholder="Add label…" value={newLabel} onChange={(e) => setNewLabel(e.target.value)} />
+          <Input type="text" placeholder="Add label…" value={newLabel} onChange={(e) => setNewLabel(e.target.value)} />
         </form>
 
         <h3>Blocked by</h3>
-        <ul>
+        <ul className="space-y-1 text-sm">
           {task.blockedBy.map((b) => (
-            <li key={b.identifier}>
-              {b.identifier} ({b.state}){" "}
-              <button
-                className="btn"
+            <li key={b.identifier} className="flex items-center gap-1.5">
+              {b.identifier} ({b.state})
+              <Button
+                variant="neutral"
+                size="icon"
+                className="size-6"
                 aria-label={`Remove blocker ${b.identifier}`}
                 onClick={() => blocker.mutate({ blocker: b.identifier, op: "remove" }, { onError })}
               >
                 ×
-              </button>
+              </Button>
             </li>
           ))}
         </ul>
@@ -159,7 +182,7 @@ export function TaskDetailPanel() {
           if (!newBlocker.trim()) return;
           blocker.mutate({ blocker: newBlocker.trim(), op: "add" }, { onSuccess: () => setNewBlocker(""), onError });
         }}>
-          <input
+          <Input
             type="text"
             list="task-ids"
             placeholder="Add blocker (TASK-N)…"
@@ -177,24 +200,24 @@ export function TaskDetailPanel() {
 
         <h3>Comments</h3>
         {comments.map((c) => (
-          <div className="comment" key={c.id}>
-            <div className="meta">{c.author} · {new Date(c.createdAt).toLocaleString()}</div>
+          <div className="rounded-base border-2 border-border bg-secondary-background p-2.5 text-sm shadow-shadow" key={c.id}>
+            <div className="mb-1 text-xs text-black/60">{c.author} · {new Date(c.createdAt).toLocaleString()}</div>
             <div>{c.body}</div>
           </div>
         ))}
-        <form onSubmit={addComment}>
-          <textarea
+        <form onSubmit={addComment} className="space-y-2">
+          <Textarea
             rows={3}
             placeholder="Add a comment…"
             value={newComment}
             onChange={(e) => setNewComment(e.target.value)}
           />
-          <button className="btn primary" type="submit">Comment</button>
+          <Button type="submit">Comment</Button>
         </form>
 
         <details>
-          <summary>History ({history.length})</summary>
-          <ul className="history">
+          <summary className="cursor-pointer">History ({history.length})</summary>
+          <ul className="mt-2 space-y-1 text-xs text-black/60">
             {history.map((ev) => (
               <li key={ev.id}>
                 {new Date(ev.createdAt).toLocaleString()} — {ev.kind}

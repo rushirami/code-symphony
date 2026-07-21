@@ -26,9 +26,9 @@ export function TaskCard({ task }: { task: Task }) {
       style={style}
       data-card
       className={cn(
-        "mb-2 cursor-grab rounded-base border-2 border-border bg-secondary-background p-2.5 text-sm shadow-shadow transition-[box-shadow,rotate,scale] duration-150",
-        "hover:translate-x-boxShadowX hover:translate-y-boxShadowY hover:shadow-none",
-        isDragging && "z-10 rotate-2 scale-105 shadow-[6px_6px_0_0_var(--border)]",
+        "mb-2 cursor-grab rounded-base border-2 border-border bg-secondary-background p-2.5 text-sm transition-[box-shadow,rotate,scale,translate] duration-150",
+        !isDragging && "shadow-shadow hover:translate-x-boxShadowX hover:translate-y-boxShadowY hover:shadow-none",
+        isDragging && "rotate-2 scale-105 shadow-[6px_6px_0_0_var(--border)]",
       )}
       onPointerDown={(e) => {
         downPos.current = { x: e.clientX, y: e.clientY };

@@ -53,7 +53,7 @@ export function TaskDetailPanel() {
   if (error || !data) {
     return (
       <div className={PANEL}>
-        <p className="p-6 text-center text-[#cf222e]">{error?.message ?? "Not found"}</p>
+        <p className="p-6 text-center text-[#ff6b6b]">{error?.message ?? "Not found"}</p>
         <Button variant="neutral" onClick={close}>Close</Button>
       </div>
     );
